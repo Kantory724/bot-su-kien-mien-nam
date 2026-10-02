@@ -7,7 +7,8 @@ from datetime import date, timedelta
 from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
-from .extractor import canonical_name, event_keyword_hits, extract_rules, has_negative
+from .extractor import (canonical_name, choose_date, event_keyword_hits, extract_rules, find_dates,
+                        has_negative, is_prep_title)
 from .formatter import format_alert, format_digest
 from .geo import PROVINCES, detect_province, normalize
 from .llm import LLM
@@ -86,9 +87,15 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
     """Dọn các sự kiện trùng đã lưu trong DB. Trả về số bản ghi đã gộp."""
     evs, gone, n = db.all_events(), set(), 0
     for e in evs:  # chuẩn hoá tên cũ ("Hoàn tất công tác chuẩn bị ...") trước khi so sánh
+        changed = False
+        # tít chuẩn bị + mốc 1 ngày = hạn chót chuẩn bị, không phải ngày diễn ra -> bỏ ngày
+        if is_prep_title(e.name) and e.start_date and (e.end_date or e.start_date) == e.start_date:
+            e.start_date = e.end_date = None
+            changed = True
         cn = canonical_name(e.name)
         if cn != e.name:
-            e.name = cn
+            e.name, changed = cn, True
+        if changed:
             db.update_event(e)
     for i, a in enumerate(evs):
         if a.id in gone:
@@ -130,6 +137,9 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
                     info[k] = ai[k]
             info["fireworks"] = info["fireworks"] or ai["fireworks"]
             info["big_concert"] = info["big_concert"] or ai["big_concert"]
+    if is_prep_title(item.title):  # ngày diễn ra chỉ lấy từ nội dung bài, không lấy từ tít (hạn chót chuẩn bị)
+        bd = choose_date(find_dates(f"{item.summary}\n{body}", item.published or today), item.published or today)
+        info["start_date"], info["end_date"] = bd if bd else (None, None)
     info["name"] = canonical_name(info["name"])
     ev = Event(name=info["name"], province=province, venue=info["venue"], start_date=info["start_date"],
                end_date=info["end_date"], start_time=info["start_time"], crowd=info["crowd"],
@@ -153,6 +163,9 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
 # ---------- Thu thập ----------
 def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     today = config.today()
+    if db.get("fix_prep_v1") != "1":  # dọn một lần dữ liệu cũ bị nhận nhầm ngày chuẩn bị
+        log.info("Dọn dữ liệu cũ: %d sự kiện đã gộp", dedupe_existing(db, None))
+        db.set("fix_prep_v1", "1")
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []

@@ -256,12 +256,20 @@ def make_summary(text: str) -> str:
     return (text or "").strip()[:220]
 
 
+PREP_KW = ["chuan bi", "san sang", "hoan tat", "khan truong", "tat bat"]
+
+
+def is_prep_title(title: str) -> bool:
+    """Tít kiểu 'hoàn tất công tác chuẩn bị / sẵn sàng cho...': ngày trong tít là hạn chót, không phải ngày diễn ra."""
+    n = f" {normalize(title)} "
+    return any(f" {k} " in n for k in PREP_KW)
+
+
 def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
     """Trích xuất bằng luật. `ref` = ngày làm mốc suy luận năm (thường là ngày đăng bài)."""
     r = pub or ref
     full = f"{title}\n{body}"
-    prep = bool(_NAME_PREFIX.match(clean_title(title)))
-    dates = ([] if prep else find_dates(title, r)) or find_dates(body, r)
+    dates = ([] if is_prep_title(title) else find_dates(title, r)) or find_dates(body, r)
     chosen = choose_date(dates, r)
     venue, ward = find_venue(full), find_ward(full)
     if venue and ward and normalize(ward) not in normalize(venue):
