@@ -170,10 +170,6 @@ pip install pytest && python -m pytest -q tests     # 34 test: ngày/giờ/quy m
 - Nếu lỡ lộ token: BotFather → `/revoke` để cấp token mới, cập nhật Secret.
 - Lệnh tra cứu chỉ phục vụ chat nằm trong danh sách cho phép.
 
-## Mở rộng sang Zalo (cộng điểm)
-
-Lớp `bot/telegram.py` chỉ cần 4 hàm: `send`, `broadcast`, `send_document`, `get_updates`. Để thêm Zalo OA: tạo `bot/zalo.py` có `broadcast(text)` gọi Zalo OA API (gửi tin tư vấn tới người đã quan tâm OA; cần `ZALO_OA_TOKEN` lưu trong Secrets và cơ chế làm mới access token), rồi gọi thêm ở `run_digest` và `send_alerts` trong `bot/pipeline.py`. Lưu ý Zalo yêu cầu OA đã xác thực và người nhận phải quan tâm OA.
-
 ## Giới hạn đã biết
 
 - Trích xuất bằng luật có thể sai với bài viết lắt léo (nhiều sự kiện trong một bài, ngày nêu gián tiếp). Bật AI để cải thiện; mọi tin đều kèm link nguồn để kiểm chứng.
