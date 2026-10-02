@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
-from .extractor import event_keyword_hits, extract_rules, has_negative
+from .extractor import canonical_name, event_keyword_hits, extract_rules, has_negative
 from .formatter import format_alert, format_digest
 from .geo import PROVINCES, detect_province, normalize
 from .llm import LLM
@@ -85,6 +85,11 @@ def _desc(e: Event) -> str:
 def dedupe_existing(db: DB, llm: LLM | None) -> int:
     """Dọn các sự kiện trùng đã lưu trong DB. Trả về số bản ghi đã gộp."""
     evs, gone, n = db.all_events(), set(), 0
+    for e in evs:  # chuẩn hoá tên cũ ("Hoàn tất công tác chuẩn bị ...") trước khi so sánh
+        cn = canonical_name(e.name)
+        if cn != e.name:
+            e.name = cn
+            db.update_event(e)
     for i, a in enumerate(evs):
         if a.id in gone:
             continue
@@ -125,6 +130,7 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
                     info[k] = ai[k]
             info["fireworks"] = info["fireworks"] or ai["fireworks"]
             info["big_concert"] = info["big_concert"] or ai["big_concert"]
+    info["name"] = canonical_name(info["name"])
     ev = Event(name=info["name"], province=province, venue=info["venue"], start_date=info["start_date"],
                end_date=info["end_date"], start_time=info["start_time"], crowd=info["crowd"],
                fireworks=info["fireworks"], big_concert=info["big_concert"], summary=info["summary"],

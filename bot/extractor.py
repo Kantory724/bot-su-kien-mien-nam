@@ -38,6 +38,7 @@ R_WORD1 = re.compile(rf"(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\
 R_SINGLE = re.compile(rf"(?<![\d/])(\d{{1,2}})\s*/\s*(\d{{1,2}}){_Y}(?![\d/])", re.I)
 R_WSINGLE = re.compile(rf"(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}", re.I)
 R_LUNAR = re.compile(r"\s*\(?\s*(?:âm lịch|âm|âl)\b", re.I)
+R_DEADLINE = re.compile(r"trước\s*(?:ngày\s*)?$", re.I)
 
 
 def _mk(d: int, m: int, y: int | None, ref: date) -> date | None:
@@ -62,7 +63,7 @@ def find_dates(text: str, ref: date) -> list[tuple[int, date, date]]:
     def take(rx, build):
         nonlocal masked
         for m in list(rx.finditer(masked)):
-            if R_LUNAR.match(masked[m.end(): m.end() + 14]):
+            if R_LUNAR.match(masked[m.end(): m.end() + 14]) or R_DEADLINE.search(masked[max(0, m.start() - 12): m.start()]):
                 masked = masked[: m.start()] + " " * (m.end() - m.start()) + masked[m.end():]
                 continue
             res = build(m)
@@ -235,6 +236,18 @@ def clean_title(t: str) -> str:
     return t.strip(" \"'“”")[:160]
 
 
+_NAME_PREFIX = re.compile(
+    r"^(?:(?:hoàn tất|khẩn trương|tất bật|rộn ràng|nhộn nhịp|háo hức)\s+)?(?:(?:công tác|việc)\s+)?"
+    r"(?:chuẩn bị|sẵn sàng|chờ đón|đón chờ)(?:\s+cho)?\s+", re.I)
+_NAME_SUFFIX = re.compile(r"\s*[,:\-–]?\s*(?:trước|vào|từ|diễn ra|sẽ diễn ra|sắp diễn ra)\s+(?:ngày\s+)?\d.*$", re.I)
+
+
+def canonical_name(name: str) -> str:
+    """Bỏ cụm 'hoàn tất công tác chuẩn bị', 'sẵn sàng cho'... và đuôi ngày để còn lại tên sự kiện."""
+    n = _NAME_SUFFIX.sub("", _NAME_PREFIX.sub("", (name or "").strip())).strip(" ,:-–")
+    return (n[:1].upper() + n[1:]) if len(n) >= 8 else (name or "").strip()
+
+
 def make_summary(text: str) -> str:
     for s in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
         s = s.strip()
@@ -255,7 +268,7 @@ def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
     elif not venue:
         venue = ward
     return {
-        "name": clean_title(title),
+        "name": canonical_name(clean_title(title)),
         "venue": venue,
         "start_date": chosen[0] if chosen else None,
         "end_date": chosen[1] if chosen else None,
