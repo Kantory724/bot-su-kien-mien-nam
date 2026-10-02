@@ -16,17 +16,38 @@ PROMPT = """Bạn trích xuất thông tin sự kiện từ bài báo tiếng Vi
 Hôm nay là {today}. Bài đăng ngày {pub}. Chỉ quan tâm sự kiện sắp/đang diễn ra tại các tỉnh: {provinces}.
 Trả về DUY NHẤT một JSON (không markdown) với các khóa:
 is_event (bool: bài có nói về MỘT sự kiện/lễ hội cụ thể sắp hoặc đang diễn ra, tập trung đông người?),
-name (tên sự kiện ngắn gọn), province (một trong: {keys} hoặc null),
-venue (địa điểm cụ thể: tên nơi + phường/xã, hoặc ""), start_date (YYYY-MM-DD hoặc null), end_date (YYYY-MM-DD hoặc null),
+name (tên chính thức của sự kiện, bỏ cụm như 'sẵn sàng cho', 'hoàn tất công tác chuẩn bị), province (tỉnh nơi sự kiện DIỄN RA (nhận cả tên tỉnh cũ trước sáp nhập 2025: 
+Kiên Giang→An Giang, Long An→Tây Ninh, Bến Tre/Trà Vinh→Vĩnh Long, Tiền Giang→Đồng Tháp, Sóc Trăng/Hậu Giang→Cần Thơ, Bạc Liêu→Cà Mau, Bình Dương/Bà Rịa-Vũng Tàu→TP.HCM, 
+Bình Phước→Đồng Nai). Sự kiện ở nơi khác thì null), venue (địa điểm cụ thể: tên nơi + phường/xã, hoặc ""), start_date (YYYY-MM-DD hoặc null), end_date (YYYY-MM-DD hoặc null),
 start_time (HH:MM hoặc ""), crowd (số người dự kiến, số nguyên hoặc null), fireworks (bool), big_concert (bool: đại nhạc hội/countdown/concert lớn),
 summary (1 câu tóm tắt tiếng Việt).
 Không bịa. Thiếu thông tin thì để null/"". Ngày âm lịch phải đổi sang dương lịch nếu bài có nêu, nếu không thì null.
+
+SAME_PROMPT = """Hai tin dưới đây có nói về CÙNG MỘT sự kiện/lễ hội (cùng đợt tổ chức, cùng địa phương) không?
+Khác tiêu đề, khác báo, ngày lệch nhau (ngày chuẩn bị / khai mạc / cả đợt) vẫn có thể là một sự kiện. Khác năm hoặc khác địa điểm thì không phải.
+Trả về DUY NHẤT JSON: {{"same": true}} hoặc {{"same": false}}
+A: {a}
+B: {b}"""
 
 TIÊU ĐỀ: {title}
 NỘI DUNG: {body}"""
 
 
 class LLM:
+    def same_event(self, a: str, b: str) -> bool | None:
+        if not self.enabled:
+            return None
+        self.calls += 1
+        try:
+            txt = self._call(SAME_PROMPT.format(a=a, b=b))
+            return bool(json.loads(re.search(r"\{.*\}", txt, re.S).group(0)).get("same"))
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code in (401, 403, 429):
+                self.disabled = True
+            return None
+        except Exception:  # noqa
+            return None
+
     def __init__(self):
         self.provider = config.env("LLM_PROVIDER").lower()
         self.key = config.env("LLM_API_KEY")
