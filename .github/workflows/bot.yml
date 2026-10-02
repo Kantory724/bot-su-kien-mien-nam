@@ -1,0 +1,55 @@
+name: Bot sự kiện miền Nam
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Lệnh muốn chạy thủ công"
+        type: choice
+        default: tick
+        options: [tick, collect, "digest --force", check-sources, test-send, get-chat-id]
+
+concurrency:
+  group: mn-events-db
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests feedparser beautifulsoup4 PyYAML openpyxl tzdata
+
+      - name: Chạy bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+          ADMIN_CHAT_IDS: ${{ secrets.ADMIN_CHAT_IDS }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+        run: python main.py ${{ github.event.inputs.action || 'tick' }}
+
+      - name: Lưu CSDL về repo
+        if: always()
+        run: |
+          git config user.name "mn-events-bot"
+          git config user.email "mn-events-bot@users.noreply.github.com"
+          git add data/events.db
+          if git diff --cached --quiet; then
+            echo "CSDL không đổi."
+          else
+            git commit -m "data: cập nhật $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
