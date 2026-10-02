@@ -1,0 +1,50 @@
+# Danh sách nguồn thu thập. Thêm/bớt nguồn chỉ cần sửa file này (không cần sửa mã).
+# type: rss          -> RSS/Atom
+# type: google_news  -> tìm kiếm Google News theo từng tỉnh (gom tin từ báo địa phương: Báo Cần Thơ, Báo Đồng Nai, SGGP...)
+# type: html         -> trang chuyên mục không có RSS (cần CSS selector) - dùng cho cổng UBND/Sở VH-TT-DL, trang bán vé
+# enabled: false     -> tạm tắt.
+#
+# Chạy `python main.py check-sources` để kiểm tra từng nguồn còn sống không.
+
+sources:
+  # ---- Báo điện tử lớn (RSS) ----
+  - {id: vnexpress-dulich,  name: "VnExpress - Du lịch",  type: rss, url: "https://vnexpress.net/rss/du-lich.rss"}
+  - {id: vnexpress-giaitri, name: "VnExpress - Giải trí", type: rss, url: "https://vnexpress.net/rss/giai-tri.rss"}
+  - {id: tuoitre-dulich,    name: "Tuổi Trẻ - Du lịch",   type: rss, url: "https://tuoitre.vn/rss/du-lich.rss"}
+  - {id: tuoitre-vanhoa,    name: "Tuổi Trẻ - Văn hóa",   type: rss, url: "https://tuoitre.vn/rss/van-hoa.rss"}
+  - {id: thanhnien-dulich,  name: "Thanh Niên - Du lịch", type: rss, url: "https://thanhnien.vn/rss/du-lich.rss"}
+  - {id: thanhnien-vanhoa,  name: "Thanh Niên - Văn hóa", type: rss, url: "https://thanhnien.vn/rss/van-hoa.rss"}
+  - {id: dantri-dulich,     name: "Dân Trí - Du lịch",    type: rss, url: "https://dantri.com.vn/rss/du-lich.rss"}
+  - {id: dantri-giaitri,    name: "Dân Trí - Giải trí",   type: rss, url: "https://dantri.com.vn/rss/giai-tri.rss"}
+
+  # ---- Báo địa phương + tổng hợp, tìm theo từng tỉnh (Google News RSS) ----
+  - id: gnews
+    name: Google News
+    type: google_news
+    window: 14d
+    topics: '(lễ hội OR "đại nhạc hội" OR "pháo hoa" OR "khai mạc" OR "hội chợ" OR "triển lãm" OR countdown OR marathon OR "ca nhạc" OR "lễ kỷ niệm")'
+    provinces:
+      hcm:      '"TP.HCM" OR "Sài Gòn" OR "Vũng Tàu" OR "Bình Dương"'
+      dongnai:  '"Đồng Nai" OR "Biên Hòa" OR "Bình Phước"'
+      tayninh:  '"Tây Ninh" OR "Long An"'
+      angiang:  '"An Giang" OR "Phú Quốc" OR "Châu Đốc" OR "Kiên Giang"'
+      dongthap: '"Đồng Tháp" OR "Tiền Giang" OR "Mỹ Tho"'
+      vinhlong: '"Vĩnh Long" OR "Bến Tre" OR "Trà Vinh"'
+      cantho:   '"Cần Thơ" OR "Sóc Trăng" OR "Hậu Giang"'
+      camau:    '"Cà Mau" OR "Bạc Liêu"'
+
+  # ---- MẪU cổng thông tin UBND / Sở VH-TT-DL, trang bán vé (type html) ----
+  # Bật lên sau khi bạn mở trang, F12 > chuột phải vào tiêu đề tin > Copy selector, rồi điền vào.
+  - id: mau-so-vhttdl
+    name: "MẪU - Cổng Sở VH-TT-DL (sửa url/selector rồi bật)"
+    type: html
+    enabled: false
+    url: "https://example.gov.vn/tin-tuc/van-hoa-the-thao-du-lich"
+    item_selector: "h3 a"          # phần tử <a> chứa tiêu đề + href của từng tin
+    province_hint: cantho          # gợi ý tỉnh nếu cổng thuộc 1 tỉnh (hcm, dongnai, tayninh, angiang, dongthap, vinhlong, cantho, camau)
+  - id: mau-ban-ve
+    name: "MẪU - Trang bán vé sự kiện (sửa url/selector rồi bật)"
+    type: html
+    enabled: false
+    url: "https://example.com/su-kien"
+    item_selector: "a.event-card"
