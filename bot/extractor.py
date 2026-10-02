@@ -260,7 +260,8 @@ def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
     """Trích xuất bằng luật. `ref` = ngày làm mốc suy luận năm (thường là ngày đăng bài)."""
     r = pub or ref
     full = f"{title}\n{body}"
-    dates = find_dates(title, r) or find_dates(body, r)
+    prep = bool(_NAME_PREFIX.match(clean_title(title)))
+    dates = ([] if prep else find_dates(title, r)) or find_dates(body, r)
     chosen = choose_date(dates, r)
     venue, ward = find_venue(full), find_ward(full)
     if venue and ward and normalize(ward) not in normalize(venue):
