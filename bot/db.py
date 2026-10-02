@@ -98,12 +98,12 @@ class DB:
         self.conn.commit()
 
     def candidates_for_dedupe(self, province: str, start: date | None) -> list[Event]:
-        """Sự kiện cùng tỉnh, lệch ngày <= 1 hoặc chưa rõ ngày."""
+        """Sự kiện cùng tỉnh, lệch ngày <= 3 hoặc chưa rõ ngày."""
         rows = self.conn.execute("SELECT * FROM events WHERE province=?", (province,)).fetchall()
         out = []
         for r in rows:
             e = self._row_to_event(r)
-            if start is None or e.start_date is None or abs((e.start_date - start).days) <= 1:
+            if start is None or e.start_date is None or abs((e.start_date - start).days) <= 3:
                 out.append(e)
         return out
 
@@ -140,6 +140,13 @@ class DB:
 
     def count_events(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
+    def all_events(self) -> list[Event]:
+        return [self._row_to_event(r) for r in self.conn.execute("SELECT * FROM events ORDER BY id")]
+
+    def delete_event(self, event_id: int):
+        self.conn.execute("DELETE FROM events WHERE id=?", (event_id,))
+        self.conn.commit()
 
     def purge_old(self):
         cut = (config.today() - timedelta(days=90)).isoformat()

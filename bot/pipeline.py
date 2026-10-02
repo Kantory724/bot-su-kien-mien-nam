@@ -39,7 +39,7 @@ def is_duplicate(a: Event, b: Event) -> bool:
     jac, cont = inter / len(ta | tb), inter / min(len(ta), len(tb))
     if a.start_date is None or b.start_date is None:
         return jac >= 0.6
-    return jac >= 0.34 or (cont >= 0.67 and min(len(ta), len(tb)) >= 3)
+    return jac >= 0.34 or (cont >= 0.6 and inter >= 3)
 
 
 def merge_into(old: Event, new: Event) -> bool:
@@ -63,17 +63,52 @@ def merge_into(old: Event, new: Event) -> bool:
         old.start_date, old.end_date, changed = new.start_date, new.end_date, True
     elif new.end_date and old.end_date and new.end_date > old.end_date and new.start_date == old.start_date:
         old.end_date, changed = new.end_date, True
+    elif new.start_date and old.start_date and new.start_date != old.start_date:
+        span = lambda e: ((e.end_date or e.start_date) - e.start_date).days
+        if span(new) > span(old):  # lấy mốc nhiều ngày (đợt lễ) thay cho mốc 1 ngày (hạn chót chuẩn bị)
+            old.start_date, old.end_date, changed = new.start_date, new.end_date, True
     # tên dài/đầy đủ hơn thường chính xác hơn khi nguồn trước chỉ là tít báo cụt
     if len(new.name) > len(old.name) + 15 and len(new.name) <= 120:
         old.name, changed = new.name, True
     return changed
 
 
+def _maybe_same(a: Event, b: Event) -> bool:
+    """Lọc thô trước khi tốn 1 lệnh gọi AI: cùng tỉnh và chung >= 2 từ đặc trưng."""
+    return a.province == b.province and len(_tokens(a.name, a.province) & _tokens(b.name, b.province)) >= 2
+
+
+def _desc(e: Event) -> str:
+    return f"{e.name} | {e.start_date}→{e.end_date} | {e.venue} | {e.summary}"[:400]
+
+
+def dedupe_existing(db: DB, llm: LLM | None) -> int:
+    """Dọn các sự kiện trùng đã lưu trong DB. Trả về số bản ghi đã gộp."""
+    evs, gone, n = db.all_events(), set(), 0
+    for i, a in enumerate(evs):
+        if a.id in gone:
+            continue
+        for b in evs[i + 1:]:
+            if b.id in gone or a.province != b.province:
+                continue
+            if a.start_date and b.start_date and abs((a.start_date - b.start_date).days) > 3:
+                continue
+            if is_duplicate(a, b) or (llm and llm.enabled and _maybe_same(a, b) and llm.same_event(_desc(a), _desc(b))):
+                merge_into(a, b)
+                db.update_event(a)
+                if b.alerted:
+                    db.mark_alerted(a.id)
+                db.delete_event(b.id)
+                gone.add(b.id)
+                n += 1
+    return n
+
+
 # ---------- Xử lý 1 bài ----------
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
-    text = f"{item.title} {item.summary} {body}"
-    province = detect_province(item.title, f"{item.summary} {body}", item.province_hint)
+    strong = detect_province(item.title, f"{item.summary} {body}")  # không dùng gợi ý nguồn
+    province = strong or (item.province_hint if item.province_hint in PROVINCES else None)
     if not province:
         return "out_of_scope"
     info = extract_rules(item.title, f"{item.summary}\n{body}".strip(), item.published, today)
@@ -82,6 +117,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
         if ai:
             if not ai["is_event"]:
                 return "not_event"
+            if not ai["province"] and not strong:
+                return "out_of_scope"  # tỉnh chỉ do gợi ý của Google News, AI xác nhận không thuộc 8 tỉnh
             province = ai["province"] or province
             for k in ("name", "venue", "start_date", "end_date", "start_time", "crowd", "summary"):
                 if ai.get(k):
@@ -94,12 +131,15 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
                sources=[item.link])
     if ev.last_date and ev.last_date < today - timedelta(days=3):
         return "past"
-    for cand in db.candidates_for_dedupe(province, ev.start_date):
-        if is_duplicate(ev, cand):
-            if merge_into(cand, ev):
-                db.update_event(cand)
-                return "merged"
-            return "dup"
+    cands = db.candidates_for_dedupe(province, ev.start_date)
+    match = next((c for c in cands if is_duplicate(ev, c)), None)
+    if not match and llm and llm.enabled:
+        match = next((c for c in cands[:5] if _maybe_same(ev, c) and llm.same_event(_desc(ev), _desc(c))), None)
+    if match:
+        if merge_into(match, ev):
+            db.update_event(match)
+            return "merged"
+        return "dup"
     db.insert_event(ev)
     return "new"
 
