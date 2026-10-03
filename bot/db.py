@@ -2,11 +2,11 @@
 import json
 import sqlite3
 from datetime import date, datetime, timedelta
-
+ 
 from . import config
 from .geo import normalize
 from .models import Event
-
+ 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS articles(url TEXT PRIMARY KEY, source TEXT, title TEXT, seen_at TEXT, status TEXT);
 CREATE TABLE IF NOT EXISTS events(
@@ -20,16 +20,16 @@ CREATE TABLE IF NOT EXISTS source_health(
   source_id TEXT PRIMARY KEY, name TEXT, fail_count INTEGER DEFAULT 0, last_error TEXT,
   last_ok TEXT, notified INTEGER DEFAULT 0, last_count INTEGER DEFAULT 0);
 """
-
-
+ 
+ 
 def _d(s):
     return date.fromisoformat(s) if s else None
-
-
+ 
+ 
 def _iso(d):
     return d.isoformat() if d else None
-
-
+ 
+ 
 class DB:
     def __init__(self, path=None):
         self.path = path or config.db_path()
@@ -38,29 +38,29 @@ class DB:
         self.conn = sqlite3.connect(str(self.path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
-
+ 
     def close(self):
         self.conn.commit()
         self.conn.close()
-
+ 
     # ---- meta ----
     def get(self, key, default=None):
         r = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         return r["value"] if r else default
-
+ 
     def set(self, key, value):
         self.conn.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                           (key, str(value)))
         self.conn.commit()
-
+ 
     # ---- articles ----
     def seen(self, url: str) -> bool:
         return self.conn.execute("SELECT 1 FROM articles WHERE url=?", (url,)).fetchone() is not None
-
+ 
     def add_article(self, url, source, title, status):
         self.conn.execute("INSERT OR REPLACE INTO articles VALUES(?,?,?,?,?)",
                           (url, source, title, config.now().isoformat(timespec="seconds"), status))
-
+ 
     # ---- events ----
     @staticmethod
     def _row_to_event(r) -> Event:
@@ -69,11 +69,11 @@ class DB:
                      crowd=r["crowd"], fireworks=bool(r["fireworks"]), big_concert=bool(r["big_concert"]),
                      summary=r["summary"] or "", sources=json.loads(r["sources"] or "[]"),
                      priority=r["priority"] or "THAP", alerted=bool(r["alerted"]))
-
+ 
     @staticmethod
     def _search_text(e: Event) -> str:
         return normalize(f"{e.name} {e.venue} {e.summary} {e.province}")
-
+ 
     def insert_event(self, e: Event) -> int:
         e.priority = e.compute_priority()
         now = config.now().isoformat(timespec="seconds")
@@ -86,7 +86,7 @@ class DB:
         self.conn.commit()
         e.id = cur.lastrowid
         return e.id
-
+ 
     def update_event(self, e: Event):
         e.priority = e.compute_priority()
         self.conn.execute(
@@ -96,7 +96,7 @@ class DB:
              int(e.big_concert), e.priority, e.summary, json.dumps(e.sources),
              config.now().isoformat(timespec="seconds"), self._search_text(e), e.id))
         self.conn.commit()
-
+ 
     def candidates_for_dedupe(self, province: str, start: date | None) -> list[Event]:
         """Sự kiện cùng tỉnh, lệch ngày <= 3 hoặc chưa rõ ngày."""
         rows = self.conn.execute("SELECT * FROM events WHERE province=?", (province,)).fetchall()
@@ -106,7 +106,7 @@ class DB:
             if start is None or e.start_date is None or abs((e.start_date - start).days) <= 3:
                 out.append(e)
         return out
-
+ 
     def events_between(self, start: date, end: date, province: str | None = None) -> list[Event]:
         q = ("SELECT * FROM events WHERE start_date IS NOT NULL AND start_date<=? "
              "AND COALESCE(end_date,start_date)>=?")
@@ -116,7 +116,7 @@ class DB:
             args.append(province)
         q += " ORDER BY start_date, CASE priority WHEN 'CAO' THEN 0 WHEN 'TB' THEN 1 ELSE 2 END, name"
         return [self._row_to_event(r) for r in self.conn.execute(q, args)]
-
+ 
     def search(self, keyword: str, today: date, limit=15) -> list[Event]:
         kw = normalize(keyword)
         if not kw:
@@ -126,34 +126,34 @@ class DB:
             "ORDER BY start_date IS NULL, start_date LIMIT ?",
             (f"%{kw}%", (today - timedelta(days=1)).isoformat(), limit))
         return [self._row_to_event(r) for r in rows]
-
+ 
     def unalerted_large(self, today: date, horizon=60) -> list[Event]:
         rows = self.conn.execute(
             "SELECT * FROM events WHERE alerted=0 AND start_date IS NOT NULL AND start_date<=? "
             "AND COALESCE(end_date,start_date)>=? ORDER BY start_date",
             ((today + timedelta(days=horizon)).isoformat(), today.isoformat()))
         return [e for e in map(self._row_to_event, rows) if e.is_large]
-
+ 
     def mark_alerted(self, event_id: int):
         self.conn.execute("UPDATE events SET alerted=1 WHERE id=?", (event_id,))
         self.conn.commit()
-
+ 
     def count_events(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-
+ 
     def all_events(self) -> list[Event]:
         return [self._row_to_event(r) for r in self.conn.execute("SELECT * FROM events ORDER BY id")]
-
+ 
     def delete_event(self, event_id: int):
         self.conn.execute("DELETE FROM events WHERE id=?", (event_id,))
         self.conn.commit()
-
+ 
     def purge_old(self):
         cut = (config.today() - timedelta(days=90)).isoformat()
         self.conn.execute("DELETE FROM articles WHERE seen_at < ?", (cut,))
         self.conn.execute("DELETE FROM events WHERE COALESCE(end_date,start_date,substr(first_seen,1,10)) < ?", (cut,))
         self.conn.commit()
-
+ 
     # ---- sức khoẻ nguồn ----
     def health_ok(self, sid, name, count) -> bool:
         """Ghi nhận nguồn chạy tốt. Trả True nếu vừa hồi phục sau khi đã báo lỗi."""
@@ -166,7 +166,7 @@ class DB:
             (sid, name, config.now().isoformat(timespec="seconds"), count))
         self.conn.commit()
         return recovered
-
+ 
     def health_fail(self, sid, name, error) -> int:
         self.conn.execute(
             "INSERT INTO source_health(source_id,name,fail_count,last_error) VALUES(?,?,1,?) "
@@ -174,14 +174,15 @@ class DB:
             (sid, name, str(error)[:300]))
         self.conn.commit()
         return self.conn.execute("SELECT fail_count FROM source_health WHERE source_id=?", (sid,)).fetchone()[0]
-
+ 
     def health_should_notify(self, sid, threshold) -> bool:
         r = self.conn.execute("SELECT fail_count, notified FROM source_health WHERE source_id=?", (sid,)).fetchone()
         return bool(r and r["fail_count"] >= threshold and not r["notified"])
-
+ 
     def health_mark_notified(self, sid):
         self.conn.execute("UPDATE source_health SET notified=1 WHERE source_id=?", (sid,))
         self.conn.commit()
-
+ 
     def health_all(self):
         return self.conn.execute("SELECT * FROM source_health ORDER BY source_id").fetchall()
+ 
