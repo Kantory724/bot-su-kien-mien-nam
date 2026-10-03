@@ -55,8 +55,8 @@ def handle(text: str, chat_id: str, db: DB) -> Reply:
         key = resolve_province(arg)
         if not key:
             return Reply([f"Không nhận ra tỉnh “{arg}”. Tỉnh hỗ trợ: " + ", ".join(v[0] for v in PROVINCES.values())])
-        ev = db.events_between(today, today + timedelta(days=6), key)
-        return Reply([format_list(f"SỰ KIỆN 7 NGÀY TỚI – {province_name(key).upper()} ({len(ev)})", ev)])
+        ev = db.events_between(today, today + timedelta(days=60), key)
+        return Reply([format_list(f"SỰ KIỆN 60 NGÀY TỚI – {province_name(key).upper()} ({len(ev)})", ev)])
     if cmd == "sukien":
         if not arg:
             return Reply(["Cú pháp: /sukien <từ khóa>\nVí dụ: /sukien pháo hoa, /sukien Ok Om Bok"])
@@ -66,7 +66,8 @@ def handle(text: str, chat_id: str, db: DB) -> Reply:
         period = "month" if arg.lower() in ("thang", "tháng", "month") else "week"
         return Reply(["Đang tạo file Excel…"], excel=period)
     if cmd == "tatca":
-        evs = sorted(db.all_events(), key=lambda e: (e.start_date is None, e.start_date or today))
+        evs = sorted((e for e in db.all_events() if not e.last_date or e.last_date >= today),
+                     key=lambda e: (e.start_date is None, e.start_date or today))
         if not evs:
             return Reply(["DB chưa có sự kiện nào."])
         lines = [f"Đang lưu {len(evs)} sự kiện:"]

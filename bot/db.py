@@ -117,14 +117,15 @@ class DB:
         q += " ORDER BY start_date, CASE priority WHEN 'CAO' THEN 0 WHEN 'TB' THEN 1 ELSE 2 END, name"
         return [self._row_to_event(r) for r in self.conn.execute(q, args)]
 
-    def search(self, keyword: str, today: date, limit=15) -> list[Event]:
+    def search(self, keyword: str, today: date, limit=15, ahead=90) -> list[Event]:
+        """Tìm sự kiện từ hôm nay trở đi (chưa kết thúc), bắt đầu trong vòng `ahead` ngày tới. Bỏ sự kiện đã qua và chưa rõ ngày."""
         kw = normalize(keyword)
         if not kw:
             return []
         rows = self.conn.execute(
-            "SELECT * FROM events WHERE search_text LIKE ? AND (start_date IS NULL OR COALESCE(end_date,start_date)>=?) "
-            "ORDER BY start_date IS NULL, start_date LIMIT ?",
-            (f"%{kw}%", (today - timedelta(days=1)).isoformat(), limit))
+            "SELECT * FROM events WHERE search_text LIKE ? AND start_date IS NOT NULL "
+            "AND COALESCE(end_date,start_date)>=? AND start_date<=? ORDER BY start_date LIMIT ?",
+            (f"%{kw}%", today.isoformat(), (today + timedelta(days=ahead)).isoformat(), limit))
         return [self._row_to_event(r) for r in rows]
 
     def unalerted_large(self, today: date, horizon=60) -> list[Event]:
