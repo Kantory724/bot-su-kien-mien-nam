@@ -61,14 +61,35 @@ def score_provinces(title: str, body: str) -> dict[str, int]:
     return scores
 
 
+# Địa danh NGOÀI 8 tỉnh/thành: nếu bài nói về chúng nhiều hơn địa bàn thì loại
+OUT_OF_SCOPE = [
+    "ha noi", "da nang", "hue", "thua thien hue", "hai phong", "nha trang", "khanh hoa", "da lat", "dalat",
+    "lam dong", "bao loc", "quang ninh", "ha long", "sa pa", "lao cai", "nghe an", "thanh hoa", "quang nam",
+    "hoi an", "ninh binh", "phan thiet", "mui ne", "binh thuan", "gia lai", "quy nhon", "dak lak",
+    "buon ma thuot", "quang binh", "quang tri", "ha giang", "cao bang", "lang son", "son la", "dien bien",
+    "thai nguyen", "bac ninh", "hung yen", "phu tho", "vinh phuc", "nam dinh", "thai binh", "ha tinh",
+    "phu yen", "ninh thuan", "phan rang", "kon tum", "pleiku", "dong hoi",
+]
+_OUT = [_pat(a) for a in OUT_OF_SCOPE]
+
+
+def out_of_scope_score(title: str, body: str) -> int:
+    nt, nb = normalize(title), normalize(body)
+    return sum(3 * len(p.findall(nt)) + len(p.findall(nb)) for p in _OUT)
+
+
 def detect_province(title: str, body: str = "", hint: str | None = None) -> str | None:
-    """Chọn tỉnh có điểm cao nhất (tiêu đề x3). Cần >= 2 điểm, hoặc dùng gợi ý từ nguồn."""
+    """Chọn tỉnh có điểm cao nhất (tiêu đề x3), cần >= 2 điểm. Gợi ý từ nguồn chỉ được dùng khi bài CÓ nhắc tỉnh đó.
+    Bài nói về địa danh ngoài địa bàn nhiều hơn địa bàn -> loại (trả None)."""
     scores = score_provinces(title, body)
+    out = out_of_scope_score(title, body)
     if scores:
         best = max(scores, key=scores.get)
         if scores[best] >= 2:
-            return best
-    return hint if hint in PROVINCES else None
+            return best if out <= scores[best] else None
+        if hint in scores and out <= scores[hint]:
+            return hint
+    return None
 
 
 def resolve_province(text: str) -> str | None:

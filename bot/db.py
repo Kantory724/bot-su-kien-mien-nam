@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS source_health(
 """
 
 
+RULES_VERSION = "3"   # tăng số này khi đổi luật lọc/trích xuất: dữ liệu cũ sẽ được làm sạch và xử lý lại
+
+
 def _d(s):
     return date.fromisoformat(s) if s else None
 
@@ -38,6 +41,15 @@ class DB:
         self.conn = sqlite3.connect(str(self.path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self):
+        """Đổi luật lọc -> xoá sự kiện/bài cũ (do luật cũ lọc lỏng) để thu thập lại sạch. Giữ offset Telegram, trạng thái nguồn."""
+        if self.get("rules_version") != RULES_VERSION:
+            self.conn.execute("DELETE FROM events")
+            self.conn.execute("DELETE FROM articles")
+            self.conn.execute("DELETE FROM meta WHERE key='last_collect'")
+            self.set("rules_version", RULES_VERSION)
 
     def close(self):
         self.conn.commit()
@@ -98,12 +110,12 @@ class DB:
         self.conn.commit()
 
     def candidates_for_dedupe(self, province: str, start: date | None) -> list[Event]:
-        """Sự kiện cùng tỉnh, lệch ngày <= 3 hoặc chưa rõ ngày."""
+        """Sự kiện cùng tỉnh, lệch ngày <= 1 hoặc chưa rõ ngày."""
         rows = self.conn.execute("SELECT * FROM events WHERE province=?", (province,)).fetchall()
         out = []
         for r in rows:
             e = self._row_to_event(r)
-            if start is None or e.start_date is None or abs((e.start_date - start).days) <= 3:
+            if start is None or e.start_date is None or abs((e.start_date - start).days) <= 1:
                 out.append(e)
         return out
 
@@ -138,15 +150,15 @@ class DB:
         self.conn.execute("UPDATE events SET alerted=1 WHERE id=?", (event_id,))
         self.conn.commit()
 
-    def count_events(self) -> int:
-        return self.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-
     def all_events(self) -> list[Event]:
         return [self._row_to_event(r) for r in self.conn.execute("SELECT * FROM events ORDER BY id")]
 
     def delete_event(self, event_id: int):
         self.conn.execute("DELETE FROM events WHERE id=?", (event_id,))
         self.conn.commit()
+
+    def count_events(self) -> int:
+        return self.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
 
     def purge_old(self):
         cut = (config.today() - timedelta(days=90)).isoformat()

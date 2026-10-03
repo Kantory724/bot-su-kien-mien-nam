@@ -1,4 +1,5 @@
 """Luồng chính: thu thập -> lọc -> trích xuất -> khử trùng -> lưu -> cảnh báo; và bản tin hằng ngày."""
+import difflib
 import logging
 import re
 import time
@@ -7,8 +8,7 @@ from datetime import date, timedelta
 from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
-from .extractor import (canonical_name, choose_date, event_keyword_hits, extract_rules, find_dates,
-                        has_negative, is_prep_title)
+from .extractor import extract_rules, is_candidate
 from .formatter import format_alert, format_digest
 from .geo import PROVINCES, detect_province, normalize
 from .llm import LLM
@@ -17,30 +17,55 @@ from .telegram import Telegram
 
 log = logging.getLogger("pipeline")
 
+# Từ chung chung trong tít báo: bỏ đi để so sánh dựa trên TÊN RIÊNG của sự kiện
 STOP = {"le", "hoi", "tai", "cua", "va", "cac", "nam", "lan", "thu", "tinh", "thanh", "pho", "khai", "mac",
         "to", "chuc", "dien", "ra", "se", "la", "co", "cho", "voi", "trong", "tu", "den", "ngay", "sap", "dau",
-        "hon", "nguoi", "khoang", "du", "kien"}
+        "hon", "nguoi", "khoang", "du", "kien", "hut", "khach", "luot", "hang", "nghin", "chuc", "don", "chao",
+        "mung", "dip", "lon", "nhat", "quy", "mo", "tham", "gia", "khan", "dan", "ruc", "ro", "dep", "moi",
+        "dai", "nhac", "concert", "festival", "countdown", "liveshow", "show", "phao", "hoa", "hoi", "cho",
+        "trien", "lam", "giai", "chay", "marathon", "dem", "chuong", "trinh", "nghe", "thuat", "van", "tuan",
+        "ky", "niem", "dien", "ra", "bat", "dau", "ben", "cung", "ve", "len", "xuong", "nhieu", "nua", "cua"}
 
 
-# ---------- Khử trùng ----------
+def _strip_names(province: str) -> set[str]:
+    top = {"tp hcm", "tphcm", "hcmc", "sai gon", "tp ho chi minh", "thanh pho ho chi minh"}
+    return {normalize(PROVINCES[province][0])} | {a for a in PROVINCES[province][1] if a in top}
+
+
 def _tokens(name: str, province: str) -> set[str]:
     n = f" {normalize(name)} "
-    for a in PROVINCES[province][1] + [normalize(PROVINCES[province][0])]:
+    for a in _strip_names(province):
         n = n.replace(f" {a} ", " ")
-    return {t for t in n.split() if t not in STOP and not t.isdigit()}
+    return {t for t in n.split() if not t.isdigit()}
+
+
+def _overlap(a: Event, b: Event) -> bool:
+    if not a.start_date or not b.start_date:
+        return False
+    return a.start_date <= (b.last_date + timedelta(days=1)) and b.start_date <= (a.last_date + timedelta(days=1))
 
 
 def is_duplicate(a: Event, b: Event) -> bool:
+    """Cùng tỉnh + ngày giao nhau (hoặc chưa rõ ngày) + tên riêng giống nhau/cùng địa điểm -> cùng một sự kiện."""
     if a.province != b.province:
         return False
     ta, tb = _tokens(a.name, a.province), _tokens(b.name, b.province)
-    if not ta or not tb:
-        return False
-    inter = len(ta & tb)
-    jac, cont = inter / len(ta | tb), inter / min(len(ta), len(tb))
-    if a.start_date is None or b.start_date is None:
-        return jac >= 0.6
-    return jac >= 0.34 or (cont >= 0.6 and inter >= 3)
+    da, dbb = ta - STOP, tb - STOP
+    ratio = difflib.SequenceMatcher(None, " ".join(sorted(ta)), " ".join(sorted(tb))).ratio()
+    same_venue = bool(a.venue and b.venue and normalize(a.venue) == normalize(b.venue))
+    if da and dbb:
+        inter = len(da & dbb)
+        jac, cont = inter / len(da | dbb), inter / min(len(da), len(dbb))
+    else:  # tên toàn từ chung chung -> so cả bộ từ
+        inter = len(ta & tb)
+        jac = inter / len(ta | tb) if ta and tb else 0
+        cont = inter / min(len(ta), len(tb)) if ta and tb else 0
+    if a.start_date and b.start_date:
+        if not _overlap(a, b):
+            return False
+        return (inter >= 2 or jac >= 0.5 or (cont >= 0.67 and min(len(da), len(dbb)) >= 2)
+                or (same_venue and inter >= 1) or ratio >= 0.72)
+    return jac >= 0.6 and inter >= 2   # thiếu ngày: yêu cầu chặt hơn
 
 
 def merge_into(old: Event, new: Event) -> bool:
@@ -64,63 +89,18 @@ def merge_into(old: Event, new: Event) -> bool:
         old.start_date, old.end_date, changed = new.start_date, new.end_date, True
     elif new.end_date and old.end_date and new.end_date > old.end_date and new.start_date == old.start_date:
         old.end_date, changed = new.end_date, True
-    elif new.start_date and old.start_date and new.start_date != old.start_date:
-        span = lambda e: ((e.end_date or e.start_date) - e.start_date).days
-        if span(new) > span(old):  # lấy mốc nhiều ngày (đợt lễ) thay cho mốc 1 ngày (hạn chót chuẩn bị)
-            old.start_date, old.end_date, changed = new.start_date, new.end_date, True
     # tên dài/đầy đủ hơn thường chính xác hơn khi nguồn trước chỉ là tít báo cụt
     if len(new.name) > len(old.name) + 15 and len(new.name) <= 120:
         old.name, changed = new.name, True
     return changed
 
 
-def _maybe_same(a: Event, b: Event) -> bool:
-    """Lọc thô trước khi tốn 1 lệnh gọi AI: cùng tỉnh và chung >= 2 từ đặc trưng."""
-    return a.province == b.province and len(_tokens(a.name, a.province) & _tokens(b.name, b.province)) >= 2
-
-
-def _desc(e: Event) -> str:
-    return f"{e.name} | {e.start_date}→{e.end_date} | {e.venue} | {e.summary}"[:400]
-
-
-def dedupe_existing(db: DB, llm: LLM | None) -> int:
-    """Dọn các sự kiện trùng đã lưu trong DB. Trả về số bản ghi đã gộp."""
-    evs, gone, n = db.all_events(), set(), 0
-    for e in evs:  # chuẩn hoá tên cũ ("Hoàn tất công tác chuẩn bị ...") trước khi so sánh
-        changed = False
-        # tít chuẩn bị + mốc 1 ngày = hạn chót chuẩn bị, không phải ngày diễn ra -> bỏ ngày
-        if is_prep_title(e.name) and e.start_date and (e.end_date or e.start_date) == e.start_date:
-            e.start_date = e.end_date = None
-            changed = True
-        cn = canonical_name(e.name)
-        if cn != e.name:
-            e.name, changed = cn, True
-        if changed:
-            db.update_event(e)
-    for i, a in enumerate(evs):
-        if a.id in gone:
-            continue
-        for b in evs[i + 1:]:
-            if b.id in gone or a.province != b.province:
-                continue
-            if a.start_date and b.start_date and abs((a.start_date - b.start_date).days) > 3:
-                continue
-            if is_duplicate(a, b) or (llm and llm.enabled and _maybe_same(a, b) and llm.same_event(_desc(a), _desc(b))):
-                merge_into(a, b)
-                db.update_event(a)
-                if b.alerted:
-                    db.mark_alerted(a.id)
-                db.delete_event(b.id)
-                gone.add(b.id)
-                n += 1
-    return n
-
-
 # ---------- Xử lý 1 bài ----------
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
-    strong = detect_province(item.title, f"{item.summary} {body}")  # không dùng gợi ý nguồn
-    province = strong or (item.province_hint if item.province_hint in PROVINCES else None)
+    if not is_candidate(item.title, item.summary):
+        return "skip"
+    province = detect_province(item.title, f"{item.summary} {body}", item.province_hint)
     if not province:
         return "out_of_scope"
     info = extract_rules(item.title, f"{item.summary}\n{body}".strip(), item.published, today)
@@ -129,33 +109,28 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
         if ai:
             if not ai["is_event"]:
                 return "not_event"
-            if not ai["province"] and not strong:
-                return "out_of_scope"  # tỉnh chỉ do gợi ý của Google News, AI xác nhận không thuộc 8 tỉnh
             province = ai["province"] or province
             for k in ("name", "venue", "start_date", "end_date", "start_time", "crowd", "summary"):
                 if ai.get(k):
                     info[k] = ai[k]
             info["fireworks"] = info["fireworks"] or ai["fireworks"]
             info["big_concert"] = info["big_concert"] or ai["big_concert"]
-    if is_prep_title(item.title):  # ngày diễn ra chỉ lấy từ nội dung bài, không lấy từ tít (hạn chót chuẩn bị)
-        bd = choose_date(find_dates(f"{item.summary}\n{body}", item.published or today), item.published or today)
-        info["start_date"], info["end_date"] = bd if bd else (None, None)
-    info["name"] = canonical_name(info["name"])
     ev = Event(name=info["name"], province=province, venue=info["venue"], start_date=info["start_date"],
                end_date=info["end_date"], start_time=info["start_time"], crowd=info["crowd"],
                fireworks=info["fireworks"], big_concert=info["big_concert"], summary=info["summary"],
                sources=[item.link])
+    if not body and not ev.start_date:
+        return "no_date"   # không đọc được bài (vd link Google News chưa giải mã) và tiêu đề không có ngày -> bỏ, tránh tin "chưa rõ ngày"
     if ev.last_date and ev.last_date < today - timedelta(days=3):
         return "past"
-    cands = db.candidates_for_dedupe(province, ev.start_date)
-    match = next((c for c in cands if is_duplicate(ev, c)), None)
-    if not match and llm and llm.enabled:
-        match = next((c for c in cands[:5] if _maybe_same(ev, c) and llm.same_event(_desc(ev), _desc(c))), None)
-    if match:
-        if merge_into(match, ev):
-            db.update_event(match)
-            return "merged"
-        return "dup"
+    if ev.start_date and ev.start_date > today + timedelta(days=240):
+        return "far"
+    for cand in db.candidates_for_dedupe(province, ev.start_date):
+        if is_duplicate(ev, cand):
+            if merge_into(cand, ev):
+                db.update_event(cand)
+                return "merged"
+            return "dup"
     db.insert_event(ev)
     return "new"
 
@@ -163,9 +138,6 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
 # ---------- Thu thập ----------
 def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     today = config.today()
-    if db.get("fix_prep_v1") != "1":  # dọn một lần dữ liệu cũ bị nhận nhầm ngày chuẩn bị
-        log.info("Dọn dữ liệu cũ: %d sự kiện đã gộp", dedupe_existing(db, None))
-        db.set("fix_prep_v1", "1")
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []
@@ -190,8 +162,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         if db.seen(it.link):
             continue
         stats["items"] += 1
-        hits = event_keyword_hits(f"{it.title} {it.summary}")
-        if not hits or has_negative(it.title):
+        if not is_candidate(it.title, it.summary):
             db.add_article(it.link, it.source_id, it.title, "skip")
             continue
         body = ""
@@ -208,6 +179,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     if llm:
         stats["llm"] = llm.calls
 
+    stats["deduped"] = dedupe_all(db)
     notify_source_failures(db, tg)
     if tg:
         send_alerts(db, tg)
@@ -221,6 +193,25 @@ def _short(e: Exception) -> str:
     """Rút gọn lỗi (bỏ URL dài) để log và tin nhắn gọn."""
     msg = re.sub(r"https?://\S+", "<url>", str(e))
     return f"{type(e).__name__}: {msg[:140]}"
+
+
+def dedupe_all(db: DB) -> int:
+    """Quét toàn bộ CSDL, gộp các sự kiện trùng (kể cả dữ liệu cũ). Trả về số bản ghi trùng đã gộp."""
+    kept: list[Event] = []
+    removed = 0
+    for e in db.all_events():
+        target = next((k for k in kept if is_duplicate(k, e)), None)
+        if target is None:
+            kept.append(e)
+            continue
+        merge_into(target, e)
+        target.alerted = target.alerted or e.alerted
+        db.update_event(target)
+        if target.alerted:
+            db.mark_alerted(target.id)
+        db.delete_event(e.id)
+        removed += 1
+    return removed
 
 
 def notify_source_failures(db: DB, tg: Telegram | None) -> None:
