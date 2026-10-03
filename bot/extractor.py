@@ -183,7 +183,7 @@ def has_big_concert(text: str) -> bool:
 # ---------- Địa điểm ----------
 _STOP = {"vào", "từ", "lúc", "ngày", "với", "để", "nhằm", "trong", "và", "do", "theo", "của", "sẽ", "đã",
          "đang", "có", "khi", "sau", "trước", "cùng", "nơi", "bởi", "như", "được"}
-_VENUE_WORDS = {"Quảng", "Sân", "Công", "Nhà", "Bến", "Đình", "Chùa", "Miếu", "Khu", "Trung", "Cảng", "Phố",
+_VENUE_WORDS = {"Quảng", "Sân", "Công", "Nhà", "Bến", "Đình", "Chùa", "Miếu", "Khu", "Cảng", "Phố",
                 "Cung", "Núi", "Hồ", "Đường", "Làng", "Đền", "Thánh", "Lăng", "Khách", "Chợ", "Bảo", "Di",
                 "Ga", "Sảnh", "Vườn", "Biển", "Bãi", "Cầu", "Vinpearl", "Dinh", "Rạp"}
 _PROV_NORM = {normalize(PROVINCES[k][0]) for k in PROVINCES} | {a for k in PROVINCES for a in PROVINCES[k][1]}
