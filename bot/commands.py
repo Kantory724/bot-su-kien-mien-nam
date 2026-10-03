@@ -46,7 +46,7 @@ def handle(text: str, chat_id: str, db: DB) -> Reply:
         return Reply([format_list(f"SỰ KIỆN HÔM NAY {today:%d/%m/%Y}: {len(ev)}", ev)])
     if cmd in ("tuannay", "tuan"):
         d = config.lookahead_days()
-        ev = db.events_between(today, today + timedelta(days=d))
+        ev = db.events_between(today, today + timedelta(days=d - 1))
         return Reply([format_list(f"SỰ KIỆN {d} NGÀY TỚI ({len(ev)})", ev)])
     if cmd == "tinh":
         if not arg:
@@ -55,8 +55,8 @@ def handle(text: str, chat_id: str, db: DB) -> Reply:
         key = resolve_province(arg)
         if not key:
             return Reply([f"Không nhận ra tỉnh “{arg}”. Tỉnh hỗ trợ: " + ", ".join(v[0] for v in PROVINCES.values())])
-        ev = db.events_between(today, today + timedelta(days=60), key)
-        return Reply([format_list(f"SỰ KIỆN 60 NGÀY TỚI – {province_name(key).upper()} ({len(ev)})", ev)])
+        ev = db.events_between(today, today + timedelta(days=6), key)
+        return Reply([format_list(f"SỰ KIỆN 7 NGÀY TỚI – {province_name(key).upper()} ({len(ev)})", ev)])
     if cmd == "sukien":
         if not arg:
             return Reply(["Cú pháp: /sukien <từ khóa>\nVí dụ: /sukien pháo hoa, /sukien Ok Om Bok"])

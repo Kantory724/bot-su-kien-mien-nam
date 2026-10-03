@@ -39,7 +39,7 @@ def is_duplicate(a: Event, b: Event) -> bool:
     inter = len(ta & tb)
     jac, cont = inter / len(ta | tb), inter / min(len(ta), len(tb))
     if a.start_date is None or b.start_date is None:
-        return jac >= 0.6
+        return jac >= 0.4 or (cont >= 0.6 and inter >= 3)
     return jac >= 0.34 or (cont >= 0.6 and inter >= 3)
 
 
@@ -278,7 +278,7 @@ def run_digest(db: DB, tg: Telegram, force: bool = False) -> bool:
         log.info("Bản tin hôm nay đã gửi, bỏ qua.")
         return False
     days = config.lookahead_days()
-    events = db.events_between(today, today + timedelta(days=days))
+    events = db.events_between(today, today + timedelta(days=days - 1))
     ok = tg.broadcast(format_digest(events, today, days))
     if ok:
         db.set("last_digest_date", today.isoformat())
