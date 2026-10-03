@@ -12,6 +12,7 @@ EVENT_KW = [
     "hoi thao", "dem nhac", "dua ghe", "dua bo", "dua thuyen", "giao thua", "chao nam moi",
     "carnival", "lien hoan", "tuan le van hoa", "dai le", "le roc", "vu lan", "trung thu",
     "nghi le", "ky nghi", "tet nguyen dan", "nhac hoi", "tuan le du lich", "ngay hoi",
+    "su kien", "khai truong", "gala", "dem hoi", "khai hoi", "chuong trinh nghe thuat", "le dang huong",
 ]
 NEG_KW = ["tai nan", "tu vong", "khoi to", "bat giu", "lua dao", "chung khoan", "gia vang",
           "ngoai hang anh", "premier league", "champions league"]

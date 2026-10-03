@@ -122,12 +122,14 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
     if title_elsewhere(item.title):
         return "out_of_scope"  # tít nói về nơi ngoài 8 tỉnh
     text_all = f"{item.summary} {body}"
-    # chỉ xét tít + đoạn mở đầu: nơi diễn ra sự kiện luôn nằm ở đó, tránh bài Hà Nội có nhắc TP.HCM ở cuối bài
-    lead = text_all.strip()[:500]
+    # chỉ xét tít + phần đầu bài: nơi diễn ra sự kiện luôn nằm ở đó, tránh bài Hà Nội có nhắc TP.HCM ở cuối bài
+    lead = text_all.strip()[:1500]
     strong = detect_province(item.title, lead)
     hint = item.province_hint if item.province_hint in PROVINCES else None
     # gợi ý của nguồn chỉ được tin khi tít/đoạn mở đầu có nhắc tới tỉnh đó
     province = strong or (hint if hint and score_provinces(item.title, lead).get(hint) else None)
+    if not province and item.is_gnews and not body and hint:
+        province = hint  # chưa đọc được bài: tin theo vùng đã tìm trên Google News (đã chặn tít nói về nơi khác)
     if not province:
         return "out_of_scope"
     info = extract_rules(item.title, f"{item.summary}\n{body}".strip(), item.published, today)
@@ -154,8 +156,6 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
                sources=[item.link])
     if ev.last_date and ev.last_date < today - timedelta(days=3):
         return "past"
-    if ev.start_date is None and not (ev.crowd or ev.fireworks or ev.big_concert):
-        return "not_event"
     cands = db.candidates_for_dedupe(province, ev.start_date)
     match = next((c for c in cands if is_duplicate(ev, c)), None)
     if not match and llm and llm.enabled:
@@ -215,8 +215,8 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
             continue  # lượt sau xử lý tiếp, chưa đánh dấu đã xem
         body = fetch_article_text(it)
         stats["fetched"] += 1
-        if not body and it.is_gnews:
-            db.add_article(it.link, it.source_id, it.title, "no_body")
+        if not body and it.is_gnews and not (detect_province(it.title) or it.province_hint):
+            db.add_article(it.link, it.source_id, it.title, "no_body")  # chưa đọc được bài và tít không nêu tỉnh
             continue
         status = ingest(db, it, body, llm, today)
         db.add_article(it.link, it.source_id, it.title, status)
