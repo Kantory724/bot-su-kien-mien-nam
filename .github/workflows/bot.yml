@@ -33,7 +33,8 @@ jobs:
 
       - name: Cài bộ giải mã link Google News (tuỳ chọn)
         run: pip install googlenewsdecoder || echo "bỏ qua googlenewsdecoder"
-        
+
+      - name: Chạy bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
