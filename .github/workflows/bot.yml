@@ -31,7 +31,9 @@ jobs:
 
       - run: pip install requests feedparser beautifulsoup4 PyYAML openpyxl tzdata
 
-      - name: Chạy bot
+      - name: Cài bộ giải mã link Google News (tuỳ chọn)
+        run: pip install googlenewsdecoder || echo "bỏ qua googlenewsdecoder"
+        
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
