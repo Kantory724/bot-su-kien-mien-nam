@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS events(
   fireworks INTEGER DEFAULT 0, big_concert INTEGER DEFAULT 0, priority TEXT, summary TEXT,
   sources TEXT, first_seen TEXT, updated_at TEXT, alerted INTEGER DEFAULT 0, search_text TEXT);
 CREATE INDEX IF NOT EXISTS ix_events_date ON events(start_date, end_date);
+CREATE TABLE IF NOT EXISTS subscribers(chat_id TEXT PRIMARY KEY, name TEXT, joined_at TEXT);
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS source_health(
   source_id TEXT PRIMARY KEY, name TEXT, fail_count INTEGER DEFAULT 0, last_error TEXT,
@@ -52,6 +53,23 @@ class DB:
         self.conn.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                           (key, str(value)))
         self.conn.commit()
+
+    # ---- người đăng ký ----
+    def add_subscriber(self, chat_id: str, name: str = ""):
+        self.conn.execute("INSERT OR IGNORE INTO subscribers VALUES(?,?,?)",
+                          (str(chat_id), name[:60], config.now().isoformat(timespec="seconds")))
+        self.conn.commit()
+
+    def remove_subscriber(self, chat_id: str):
+        self.conn.execute("DELETE FROM subscribers WHERE chat_id=?", (str(chat_id),))
+        self.conn.commit()
+
+    def subscribers(self) -> list[str]:
+        return [r[0] for r in self.conn.execute("SELECT chat_id FROM subscribers ORDER BY joined_at")]
+
+    def recipients(self) -> list[str]:
+        """Danh sách nhận tin = TELEGRAM_CHAT_IDS (cố định) + người tự đăng ký bằng /start."""
+        return list(dict.fromkeys(config.chat_ids() + self.subscribers()))
 
     # ---- articles ----
     def seen(self, url: str) -> bool:

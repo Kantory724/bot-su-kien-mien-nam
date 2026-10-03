@@ -59,6 +59,11 @@ def admin_ids() -> list[str]:
     return _ids("ADMIN_CHAT_IDS") or chat_ids()
 
 
+def join_code() -> str:
+    """Mã tham gia (tuỳ chọn). Đặt BOT_JOIN_CODE để chỉ người có mã mới tự đăng ký được; để trống = ai cũng đăng ký được."""
+    return env("BOT_JOIN_CODE")
+
+
 def db_path() -> Path:
     p = Path(env("DB_PATH", "data/events.db"))
     return p if p.is_absolute() else ROOT / p

@@ -262,12 +262,20 @@ def notify_source_failures(db: DB, tg: Telegram | None) -> None:
         db.health_mark_notified(r["source_id"])
 
 
+def prune_dead(db: DB, tg: Telegram) -> None:
+    """Xoá người đăng ký đã chặn bot để không gửi lại."""
+    for cid in list(tg.dead):
+        db.remove_subscriber(cid)
+    tg.dead.clear()
+
+
 def send_alerts(db: DB, tg: Telegram) -> int:
     n = 0
     for e in db.unalerted_large(config.today()):
-        if tg.broadcast(format_alert(e)):
+        if tg.broadcast(format_alert(e), db.recipients()):
             db.mark_alerted(e.id)
             n += 1
+    prune_dead(db, tg)
     return n
 
 
@@ -279,7 +287,8 @@ def run_digest(db: DB, tg: Telegram, force: bool = False) -> bool:
         return False
     days = config.lookahead_days()
     events = db.events_between(today, today + timedelta(days=days - 1))
-    ok = tg.broadcast(format_digest(events, today, days))
+    ok = tg.broadcast(format_digest(events, today, days), db.recipients())
+    prune_dead(db, tg)
     if ok:
         db.set("last_digest_date", today.isoformat())
     return bool(ok)
