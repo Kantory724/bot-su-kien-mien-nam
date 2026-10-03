@@ -120,6 +120,7 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
     strong = detect_province(item.title, f"{item.summary} {body}")
+    # Google News: từ khoá tìm kiếm không đủ để kết luận tỉnh -> chỉ tin nội dung bài
     province = strong or (None if item.is_gnews else (item.province_hint if item.province_hint in PROVINCES else None))
     if not province:
         return "out_of_scope"
