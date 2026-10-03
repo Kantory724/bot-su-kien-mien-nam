@@ -3,7 +3,7 @@ import logging
 import re
 import time
 from datetime import date, timedelta
-
+ 
 from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
@@ -14,22 +14,22 @@ from .geo import PROVINCES, detect_province, normalize
 from .llm import LLM
 from .models import Event
 from .telegram import Telegram
-
+ 
 log = logging.getLogger("pipeline")
-
+ 
 STOP = {"le", "hoi", "tai", "cua", "va", "cac", "nam", "lan", "thu", "tinh", "thanh", "pho", "khai", "mac",
         "to", "chuc", "dien", "ra", "se", "la", "co", "cho", "voi", "trong", "tu", "den", "ngay", "sap", "dau",
         "hon", "nguoi", "khoang", "du", "kien"}
-
-
+ 
+ 
 # ---------- Khử trùng ----------
 def _tokens(name: str, province: str) -> set[str]:
     n = f" {normalize(name)} "
     for a in PROVINCES[province][1] + [normalize(PROVINCES[province][0])]:
         n = n.replace(f" {a} ", " ")
     return {t for t in n.split() if t not in STOP and not t.isdigit()}
-
-
+ 
+ 
 def is_duplicate(a: Event, b: Event) -> bool:
     if a.province != b.province:
         return False
@@ -41,8 +41,8 @@ def is_duplicate(a: Event, b: Event) -> bool:
     if a.start_date is None or b.start_date is None:
         return jac >= 0.6
     return jac >= 0.34 or (cont >= 0.6 and inter >= 3)
-
-
+ 
+ 
 def merge_into(old: Event, new: Event) -> bool:
     """Gộp thông tin mới vào sự kiện cũ. Trả True nếu có thay đổi."""
     changed = False
@@ -72,17 +72,17 @@ def merge_into(old: Event, new: Event) -> bool:
     if len(new.name) > len(old.name) + 15 and len(new.name) <= 120:
         old.name, changed = new.name, True
     return changed
-
-
+ 
+ 
 def _maybe_same(a: Event, b: Event) -> bool:
     """Lọc thô trước khi tốn 1 lệnh gọi AI: cùng tỉnh và chung >= 2 từ đặc trưng."""
     return a.province == b.province and len(_tokens(a.name, a.province) & _tokens(b.name, b.province)) >= 2
-
-
+ 
+ 
 def _desc(e: Event) -> str:
     return f"{e.name} | {e.start_date}→{e.end_date} | {e.venue} | {e.summary}"[:400]
-
-
+ 
+ 
 def dedupe_existing(db: DB, llm: LLM | None) -> int:
     """Dọn các sự kiện trùng đã lưu trong DB. Trả về số bản ghi đã gộp."""
     evs, gone, n = db.all_events(), set(), 0
@@ -114,8 +114,8 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
                 gone.add(b.id)
                 n += 1
     return n
-
-
+ 
+ 
 # ---------- Xử lý 1 bài ----------
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
@@ -158,8 +158,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
         return "dup"
     db.insert_event(ev)
     return "new"
-
-
+ 
+ 
 # ---------- Thu thập ----------
 def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     today = config.today()
@@ -169,7 +169,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []
-
+ 
     for src in sources:
         try:
             got = fetch_source(src)
@@ -183,7 +183,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
             n = db.health_fail(src["id"], src["name"], _short(e))
             log.error("LỖI %-28s (lần %d liên tiếp): %s", src["id"], n, _short(e))
         time.sleep(0.3)
-
+ 
     items.sort(key=lambda i: i.published or today, reverse=True)
     cap = config.max_article_fetch()
     for it in items:
@@ -207,7 +207,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     db.conn.commit()
     if llm:
         stats["llm"] = llm.calls
-
+ 
     notify_source_failures(db, tg)
     if tg:
         send_alerts(db, tg)
@@ -215,14 +215,14 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     db.set("last_collect", config.now().isoformat(timespec="seconds"))
     log.info("Xong thu thập: %s", stats)
     return stats
-
-
+ 
+ 
 def _short(e: Exception) -> str:
     """Rút gọn lỗi (bỏ URL dài) để log và tin nhắn gọn."""
     msg = re.sub(r"https?://\S+", "<url>", str(e))
     return f"{type(e).__name__}: {msg[:140]}"
-
-
+ 
+ 
 def notify_source_failures(db: DB, tg: Telegram | None) -> None:
     """Gộp mọi nguồn vừa vượt ngưỡng lỗi thành MỘT tin nhắn cho admin (tránh dồn tin khi mất mạng hàng loạt)."""
     th = config.fail_threshold()
@@ -238,8 +238,8 @@ def notify_source_failures(db: DB, tg: Telegram | None) -> None:
         tg.broadcast("\n".join(lines), config.admin_ids())
     for r in bad:
         db.health_mark_notified(r["source_id"])
-
-
+ 
+ 
 def send_alerts(db: DB, tg: Telegram) -> int:
     n = 0
     for e in db.unalerted_large(config.today()):
@@ -247,8 +247,8 @@ def send_alerts(db: DB, tg: Telegram) -> int:
             db.mark_alerted(e.id)
             n += 1
     return n
-
-
+ 
+ 
 # ---------- Bản tin hằng ngày ----------
 def run_digest(db: DB, tg: Telegram, force: bool = False) -> bool:
     today = config.today()
@@ -261,3 +261,4 @@ def run_digest(db: DB, tg: Telegram, force: bool = False) -> bool:
     if ok:
         db.set("last_digest_date", today.isoformat())
     return bool(ok)
+ 
