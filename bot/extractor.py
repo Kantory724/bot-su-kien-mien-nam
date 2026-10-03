@@ -37,6 +37,12 @@ R_SHORT = re.compile(rf"(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\
 R_WORD1 = re.compile(rf"(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}", re.I)
 R_SINGLE = re.compile(rf"(?<![\d/])(\d{{1,2}})\s*/\s*(\d{{1,2}}){_Y}(?![\d/])", re.I)
 R_WSINGLE = re.compile(rf"(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}", re.I)
+_UNITS = r"triệu|nghìn|ngàn|tỷ|vạn|%|km|kg|ha|m2|m²|tấn|điểm|người|lượt|đồng|vnd|usd"
+_DOT_END = rf"(?![\d/]|[.,]\d|\s*(?:{_UNITS})(?!\w))"
+_YD = r"(?:\.(\d{4}))?"
+R_DFULL = re.compile(rf"(?<![\d/.,])(\d{{1,2}})\.(\d{{1,2}}){_YD}\s*{_RNG}\s*(?:ngày\s*)?(\d{{1,2}})\.(\d{{1,2}}){_YD}{_DOT_END}", re.I)
+R_DSHORT = re.compile(rf"(?<![\d/.,])(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\.(\d{{1,2}}){_YD}{_DOT_END}", re.I)
+R_DSINGLE = re.compile(rf"(?<![\d/.,])(\d{{1,2}})\.(\d{{1,2}}){_YD}{_DOT_END}", re.I)
 R_LUNAR = re.compile(r"\s*\(?\s*(?:âm lịch|âm|âl)\b", re.I)
 R_DEADLINE = re.compile(r"trước\s*(?:ngày\s*)?$", re.I)
 
@@ -93,10 +99,13 @@ def find_dates(text: str, ref: date) -> list[tuple[int, date, date]]:
 
     take(R_FULL, full)
     take(R_WORD2, full)
+    take(R_DFULL, full)
     take(R_SHORT, short)
     take(R_WORD1, short)
+    take(R_DSHORT, short)
     take(R_SINGLE, single)
     take(R_WSINGLE, single)
+    take(R_DSINGLE, single)
     return sorted(found)
 
 
@@ -183,17 +192,28 @@ def has_big_concert(text: str) -> bool:
 # ---------- Địa điểm ----------
 _STOP = {"vào", "từ", "lúc", "ngày", "với", "để", "nhằm", "trong", "và", "do", "theo", "của", "sẽ", "đã",
          "đang", "có", "khi", "sau", "trước", "cùng", "nơi", "bởi", "như", "được"}
-_VENUE_WORDS = {"Quảng", "Sân", "Công", "Nhà", "Bến", "Đình", "Chùa", "Miếu", "Khu", "Cảng", "Phố",
+_VENUE_WORDS = {"Quảng", "Sân", "Công", "Nhà", "Bến", "Đình", "Chùa", "Miếu", "Khu", "Trường", "Hoàng", "Tòa", "Cảng", "Phố",
                 "Cung", "Núi", "Hồ", "Đường", "Làng", "Đền", "Thánh", "Lăng", "Khách", "Chợ", "Bảo", "Di",
                 "Ga", "Sảnh", "Vườn", "Biển", "Bãi", "Cầu", "Vinpearl", "Dinh", "Rạp"}
 _PROV_NORM = {normalize(PROVINCES[k][0]) for k in PROVINCES} | {a for k in PROVINCES for a in PROVINCES[k][1]}
 
 
+_VENUE_OK = re.compile(r"\b(?:phường|xã|thị trấn|đặc khu|đường|số\s*\d)", re.I)
+
+
+def valid_venue(v: str) -> bool:
+    """Chỉ nhận tên nơi chốn cụ thể (quảng trường, sân, chùa, phường/xã...), không nhận tên tỉnh/thành/quốc gia."""
+    v = (v or "").strip(" ,:")
+    n = normalize(v)
+    if len(v) < 3 or n in _PROV_NORM or n.startswith("ho chi minh"):
+        return False
+    return v.split()[0] in _VENUE_WORDS or n.startswith("trung tam") or bool(_VENUE_OK.search(v))
+
+
 def find_venue(text: str) -> str:
-    cands = []
     m = re.search(r"địa điểm\s*[:：-]\s*([^\n.;]{3,100})", text, re.I)
-    if m:
-        cands.append((0, m.group(1).strip(" ,:")))
+    if m and valid_venue(m.group(1)):
+        return m.group(1).strip(" ,:")[:100]
     for m in re.finditer(r"\btại\s+([^,.;\n()]{3,100})", text):
         toks = m.group(1).split()
         if not toks or not toks[0][0].isupper():
@@ -206,12 +226,9 @@ def find_venue(text: str) -> str:
             if len(out) >= 8:
                 break
         v = " ".join(out).strip()
-        if len(v) < 3 or normalize(v) in _PROV_NORM:
-            continue
-        cands.append((0 if toks[0] in _VENUE_WORDS else 1, v))
-    if not cands:
-        return ""
-    return sorted(cands, key=lambda x: x[0])[0][1][:100]
+        if valid_venue(v):
+            return v[:100]
+    return ""
 
 
 def find_ward(text: str) -> str:

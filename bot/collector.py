@@ -104,7 +104,7 @@ def _fetch_html(src: dict) -> list[Item]:
 
 
 def _resolve_gnews(url: str) -> str | None:
-    try:
+    try:  # tuỳ chọn: pip install googlenewsdecoder
         from googlenewsdecoder import gnewsdecoder
         res = gnewsdecoder(url, interval=1)
         if res.get("status"):

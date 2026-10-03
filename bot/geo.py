@@ -33,6 +33,16 @@ PROVINCES: dict[str, tuple[str, list[str]]] = {
     "camau": ("Cà Mau", ["ca mau", "bac lieu", "nam can", "dat mui"]),
 }
 
+# Địa danh ngoài 8 tỉnh (đã chuẩn hoá): chỉ dùng làm chốt chặn khi TÍT nhắc tới nơi này mà không nhắc tỉnh nào trong 8 tỉnh
+OTHER_AREAS = [
+    "ha noi", "hue", "da nang", "hai phong", "quang ninh", "nghe an", "thanh hoa", "da lat", "lam dong",
+    "khanh hoa", "nha trang", "hoi an", "quang nam", "ninh binh", "lao cai", "gia lai", "dak lak",
+    "quy nhon", "binh dinh", "quang tri", "ha long", "sa pa", "ha tinh", "cao bang", "lang son", "son la",
+    "dien bien", "tuyen quang", "thai nguyen", "phu tho", "bac ninh", "hung yen", "quang ngai", "kon tum",
+    "dong hoi", "vinh phuc", "hai duong", "nam dinh", "thai binh", "ha giang", "yen bai", "bac giang",
+    "trung quoc", "campuchia", "thai lan", "nhat ban", "han quoc",
+]
+
 # Tên người dùng gõ cho lệnh /tinh
 EXTRA_NAMES = {"hcm": ["hcm", "sg", "tp hcm", "sai gon", "ho chi minh"], "tayninh": ["tn"], "cantho": ["ct"]}
 
@@ -45,6 +55,17 @@ _PATTERNS: dict[str, list[re.Pattern]] = {
     k: [_pat(a) for a in dict.fromkeys(aliases + [normalize(name)])]
     for k, (name, aliases) in PROVINCES.items()
 }
+
+
+_OTHER_PATS = [_pat(a) for a in OTHER_AREAS]
+
+
+def title_elsewhere(title: str) -> bool:
+    """Tít nhắc tới nơi ngoài 8 tỉnh và không nhắc tỉnh nào trong 8 tỉnh."""
+    nt = normalize(title)
+    if any(p.search(nt) for pats in _PATTERNS.values() for p in pats):
+        return False
+    return any(p.search(nt) for p in _OTHER_PATS)
 
 
 def province_name(key: str) -> str:

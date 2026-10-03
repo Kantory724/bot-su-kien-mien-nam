@@ -60,7 +60,7 @@ def handle(text: str, chat_id: str, db: DB) -> Reply:
         if not arg:
             return Reply(["Cú pháp: /sukien <từ khóa>\nVí dụ: /sukien pháo hoa, /sukien Ok Om Bok"])
         ev = db.search(arg, today)
-        return Reply([format_list(f"KẾT QUẢ CHO “{arg}” ({len(ev)})", ev, show_summary=True)])
+        return Reply([format_list(f"KẾT QUẢ CHO “{arg}” ({len(ev)})", ev)])
     if cmd == "excel":
         period = "month" if arg.lower() in ("thang", "tháng", "month") else "week"
         return Reply(["Đang tạo file Excel…"], excel=period)

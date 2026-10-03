@@ -8,9 +8,9 @@ from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
 from .extractor import (canonical_name, choose_date, event_keyword_hits, extract_rules, find_dates,
-                        has_negative, is_prep_title)
+                        has_negative, is_prep_title, valid_venue)
 from .formatter import format_alert, format_digest
-from .geo import PROVINCES, detect_province, normalize
+from .geo import PROVINCES, detect_province, normalize, score_provinces, title_elsewhere
 from .llm import LLM
 from .models import Event
 from .telegram import Telegram
@@ -119,9 +119,15 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
 # ---------- Xử lý 1 bài ----------
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
-    strong = detect_province(item.title, f"{item.summary} {body}")
-    # Google News: từ khoá tìm kiếm không đủ để kết luận tỉnh -> chỉ tin nội dung bài
-    province = strong or (None if item.is_gnews else (item.province_hint if item.province_hint in PROVINCES else None))
+    if title_elsewhere(item.title):
+        return "out_of_scope"  # tít nói về nơi ngoài 8 tỉnh
+    text_all = f"{item.summary} {body}"
+    # chỉ xét tít + đoạn mở đầu: nơi diễn ra sự kiện luôn nằm ở đó, tránh bài Hà Nội có nhắc TP.HCM ở cuối bài
+    lead = text_all.strip()[:500]
+    strong = detect_province(item.title, lead)
+    hint = item.province_hint if item.province_hint in PROVINCES else None
+    # gợi ý của nguồn chỉ được tin khi tít/đoạn mở đầu có nhắc tới tỉnh đó
+    province = strong or (hint if hint and score_provinces(item.title, lead).get(hint) else None)
     if not province:
         return "out_of_scope"
     info = extract_rules(item.title, f"{item.summary}\n{body}".strip(), item.published, today)
@@ -134,7 +140,7 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
                 return "out_of_scope"  # tỉnh chỉ do gợi ý của Google News, AI xác nhận không thuộc 8 tỉnh
             province = ai["province"] or province
             for k in ("name", "venue", "start_date", "end_date", "start_time", "crowd", "summary"):
-                if ai.get(k):
+                if ai.get(k) and (k != "venue" or valid_venue(ai[k])):
                     info[k] = ai[k]
             info["fireworks"] = info["fireworks"] or ai["fireworks"]
             info["big_concert"] = info["big_concert"] or ai["big_concert"]
@@ -148,6 +154,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
                sources=[item.link])
     if ev.last_date and ev.last_date < today - timedelta(days=3):
         return "past"
+    if ev.start_date is None and not (ev.crowd or ev.fireworks or ev.big_concert):
+        return "not_event"
     cands = db.candidates_for_dedupe(province, ev.start_date)
     match = next((c for c in cands if is_duplicate(ev, c)), None)
     if not match and llm and llm.enabled:
@@ -164,14 +172,17 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
 # ---------- Thu thập ----------
 def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     today = config.today()
-    if db.get("fix_gnews_v1") != "1":
-        db.conn.execute("DELETE FROM events WHERE start_date IS NULL AND sources LIKE '%news.google.com%'")
-        db.conn.execute("DELETE FROM articles WHERE url LIKE 'https://news.google.com/%'")
+    if db.get("fix_scope_v2") != "1":  # dọn một lần: dữ liệu cũ gán sai tỉnh/địa điểm
+        db.conn.execute("DELETE FROM events")
+        db.conn.execute("DELETE FROM articles")
         db.conn.commit()
-        db.set("fix_gnews_v1", "1")
+        db.set("fix_scope_v2", "1")
     db.conn.execute("DELETE FROM articles WHERE status='no_body' AND seen_at < ?",
                     ((config.now() - timedelta(hours=6)).isoformat(timespec="seconds"),))
     db.conn.commit()
+    if db.get("fix_prep_v1") != "1":  # dọn một lần dữ liệu cũ bị nhận nhầm ngày chuẩn bị
+        log.info("Dọn dữ liệu cũ: %d sự kiện đã gộp", dedupe_existing(db, None))
+        db.set("fix_prep_v1", "1")
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []
@@ -201,7 +212,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
             db.add_article(it.link, it.source_id, it.title, "skip")
             continue
         if stats["fetched"] >= cap:
-            continue  # lượt sau xử lý tiếp
+            continue  # lượt sau xử lý tiếp, chưa đánh dấu đã xem
         body = fetch_article_text(it)
         stats["fetched"] += 1
         if not body and it.is_gnews:
