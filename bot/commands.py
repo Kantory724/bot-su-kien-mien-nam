@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from . import config
 from .db import DB
-from .formatter import format_list
+from .formatter import fmt_range, format_list
 from .geo import PROVINCES, province_name, resolve_province
 
 HELP = """Bot tin lễ hội, sự kiện miền Nam
@@ -14,6 +14,7 @@ HELP = """Bot tin lễ hội, sự kiện miền Nam
 /sukien <từ khóa> – tìm sự kiện (vd: /sukien pháo hoa)
 /excel [tuan|thang] – nhận file Excel danh sách sự kiện
 /trangthai – tình trạng hệ thống và các nguồn tin
+/tatca – liệt kê mọi sự kiện đang lưu (kiểm tra dữ liệu)
 /id – xem Chat ID của cuộc trò chuyện này
 Tỉnh hỗ trợ: """ + ", ".join(v[0] for v in PROVINCES.values())
 
@@ -64,6 +65,14 @@ def handle(text: str, chat_id: str, db: DB) -> Reply:
     if cmd == "excel":
         period = "month" if arg.lower() in ("thang", "tháng", "month") else "week"
         return Reply(["Đang tạo file Excel…"], excel=period)
+    if cmd == "tatca":
+        evs = sorted(db.all_events(), key=lambda e: (e.start_date is None, e.start_date or today))
+        if not evs:
+            return Reply(["DB chưa có sự kiện nào."])
+        lines = [f"Đang lưu {len(evs)} sự kiện:"]
+        lines += [f"{i}. {fmt_range(e.start_date, e.end_date)} · {province_name(e.province)} · {e.name[:70]}"
+                  for i, e in enumerate(evs[:40], 1)]
+        return Reply(["\n".join(lines)])
     if cmd == "trangthai":
         rows = db.health_all()
         bad = [r for r in rows if r["fail_count"]]
@@ -71,6 +80,8 @@ def handle(text: str, chat_id: str, db: DB) -> Reply:
                  f"Lần thu thập gần nhất: {db.get('last_collect', 'chưa có')}",
                  f"Bản tin gần nhất: {db.get('last_digest_date', 'chưa có')}",
                  f"Nguồn: {len(rows)} (lỗi: {len(bad)})"]
+        st = db.conn.execute("SELECT status, COUNT(*) FROM articles GROUP BY 1 ORDER BY 2 DESC").fetchall()
+        lines.append("Bài đã xử lý: " + (", ".join(f"{r[0]}={r[1]}" for r in st) or "chưa có"))
         lines += [f" - {r['name']}: lỗi {r['fail_count']} lần – {r['last_error'][:80]}" for r in bad]
         return Reply(["\n".join(lines)])
     if cmd:
