@@ -117,7 +117,7 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
 
 
 # ---------- Xử lý 1 bài ----------
-def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
+def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_date: bool = False) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
     if title_elsewhere(item.title):
         return "out_of_scope"  # tít nói về nơi ngoài 8 tỉnh
@@ -156,6 +156,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
                sources=[item.link])
     if ev.last_date and ev.last_date < today - timedelta(days=3):
         return "past"
+    if require_date and ev.start_date is None:
+        return "not_event"  # tin không có từ khoá sự kiện thì phải có ngày mới giữ
     cands = db.candidates_for_dedupe(province, ev.start_date)
     match = next((c for c in cands if is_duplicate(ev, c)), None)
     if not match and llm and llm.enabled:
@@ -172,11 +174,10 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
 # ---------- Thu thập ----------
 def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     today = config.today()
-    if db.get("fix_scope_v2") != "1":  # dọn một lần: dữ liệu cũ gán sai tỉnh/địa điểm
-        db.conn.execute("DELETE FROM events")
+    if db.get("fix_scope_v3") != "1":  # dọn một lần: xử lý lại các bài từng bị loại (giữ nguyên sự kiện đã lưu)
         db.conn.execute("DELETE FROM articles")
         db.conn.commit()
-        db.set("fix_scope_v2", "1")
+        db.set("fix_scope_v3", "1")
     db.conn.execute("DELETE FROM articles WHERE status='no_body' AND seen_at < ?",
                     ((config.now() - timedelta(hours=6)).isoformat(timespec="seconds"),))
     db.conn.commit()
@@ -208,7 +209,8 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
             continue
         stats["items"] += 1
         hits = event_keyword_hits(f"{it.title} {it.summary}")
-        if not hits or has_negative(it.title):
+        # Google News đã được lọc theo chủ đề ngay từ truy vấn -> không bắt buộc có từ khoá trong tít
+        if (not hits and not it.is_gnews) or has_negative(it.title):
             db.add_article(it.link, it.source_id, it.title, "skip")
             continue
         if stats["fetched"] >= cap:
@@ -218,7 +220,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         if not body and it.is_gnews and not (detect_province(it.title) or it.province_hint):
             db.add_article(it.link, it.source_id, it.title, "no_body")  # chưa đọc được bài và tít không nêu tỉnh
             continue
-        status = ingest(db, it, body, llm, today)
+        status = ingest(db, it, body, llm, today, require_date=not hits)
         db.add_article(it.link, it.source_id, it.title, status)
         if status == "new":
             stats["new"] += 1
