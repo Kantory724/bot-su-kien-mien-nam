@@ -1,12 +1,12 @@
 """Xử lý lệnh người dùng gõ vào bot: /homnay /tuannay /tinh /sukien ..."""
 from dataclasses import dataclass, field
 from datetime import timedelta
- 
+
 from . import config
 from .db import DB
 from .formatter import format_list
 from .geo import PROVINCES, province_name, resolve_province
- 
+
 HELP = """Bot tin lễ hội, sự kiện miền Nam
 /homnay – sự kiện đang diễn ra hôm nay
 /tuannay – sự kiện trong 7 ngày tới
@@ -16,14 +16,14 @@ HELP = """Bot tin lễ hội, sự kiện miền Nam
 /trangthai – tình trạng hệ thống và các nguồn tin
 /id – xem Chat ID của cuộc trò chuyện này
 Tỉnh hỗ trợ: """ + ", ".join(v[0] for v in PROVINCES.values())
- 
- 
+
+
 @dataclass
 class Reply:
     texts: list[str] = field(default_factory=list)
     excel: str | None = None  # "week" | "month"
- 
- 
+
+
 def parse(text: str) -> tuple[str, str]:
     text = (text or "").strip()
     if not text.startswith("/"):
@@ -31,8 +31,8 @@ def parse(text: str) -> tuple[str, str]:
     first, _, arg = text.partition(" ")
     cmd = first[1:].split("@")[0].lower()
     return cmd, arg.strip()
- 
- 
+
+
 def handle(text: str, chat_id: str, db: DB) -> Reply:
     cmd, arg = parse(text)
     today = config.today()
