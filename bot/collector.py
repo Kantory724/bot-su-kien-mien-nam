@@ -104,13 +104,14 @@ def _fetch_html(src: dict) -> list[Item]:
 
 
 def _resolve_gnews(url: str) -> str | None:
-    try:  # tuỳ chọn: pip install googlenewsdecoder
+    try:
         from googlenewsdecoder import gnewsdecoder
         res = gnewsdecoder(url, interval=1)
         if res.get("status"):
             return res["decoded_url"]
+        log.warning("Giải mã Google News thất bại: %s", str(res.get("message"))[:120])
     except Exception as e:  # noqa
-        log.debug("Không giải mã được link Google News: %s", e)
+        log.warning("Không giải mã được link Google News: %s", type(e).__name__)
     return None
 
 
