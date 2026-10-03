@@ -1,16 +1,16 @@
 """Danh sách tỉnh/thành, bí danh (gồm tên địa phương cũ sau sáp nhập 2025) và nhận diện tỉnh."""
 import re
 import unicodedata
-
-
+ 
+ 
 def normalize(s: str) -> str:
     """Bỏ dấu, chữ thường, chỉ giữ chữ-số, gộp khoảng trắng."""
     s = (s or "").replace("đ", "d").replace("Đ", "D")
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
-
-
+ 
+ 
 # key -> (tên hiển thị, [bí danh đã chuẩn hoá])
 # 8 tỉnh/thành theo đề bài; bí danh gồm các địa danh/tỉnh cũ đã sáp nhập vào (từ 01/07/2025).
 PROVINCES: dict[str, tuple[str, list[str]]] = {
@@ -32,25 +32,25 @@ PROVINCES: dict[str, tuple[str, list[str]]] = {
         "can tho", "ninh kieu", "soc trang", "hau giang", "vi thanh", "nga bay", "cai rang", "o mon"]),
     "camau": ("Cà Mau", ["ca mau", "bac lieu", "nam can", "dat mui"]),
 }
-
+ 
 # Tên người dùng gõ cho lệnh /tinh
 EXTRA_NAMES = {"hcm": ["hcm", "sg", "tp hcm", "sai gon", "ho chi minh"], "tayninh": ["tn"], "cantho": ["ct"]}
-
-
+ 
+ 
 def _pat(alias: str) -> re.Pattern:
     return re.compile(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])")
-
-
+ 
+ 
 _PATTERNS: dict[str, list[re.Pattern]] = {
     k: [_pat(a) for a in dict.fromkeys(aliases + [normalize(name)])]
     for k, (name, aliases) in PROVINCES.items()
 }
-
-
+ 
+ 
 def province_name(key: str) -> str:
     return PROVINCES[key][0] if key in PROVINCES else key
-
-
+ 
+ 
 def score_provinces(title: str, body: str) -> dict[str, int]:
     nt, nb = normalize(title), normalize(body)
     scores = {}
@@ -59,8 +59,8 @@ def score_provinces(title: str, body: str) -> dict[str, int]:
         if s:
             scores[key] = s
     return scores
-
-
+ 
+ 
 def detect_province(title: str, body: str = "", hint: str | None = None) -> str | None:
     """Chọn tỉnh có điểm cao nhất (tiêu đề x3). Cần >= 2 điểm, hoặc dùng gợi ý từ nguồn."""
     scores = score_provinces(title, body)
@@ -69,8 +69,8 @@ def detect_province(title: str, body: str = "", hint: str | None = None) -> str 
         if scores[best] >= 2:
             return best
     return hint if hint in PROVINCES else None
-
-
+ 
+ 
 def resolve_province(text: str) -> str | None:
     """Đổi chuỗi người dùng gõ (/tinh can tho, /tinh HCM...) thành key tỉnh."""
     n = normalize(text)
