@@ -119,8 +119,8 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
 # ---------- Xử lý 1 bài ----------
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
-    strong = detect_province(item.title, f"{item.summary} {body}")  # không dùng gợi ý nguồn
-    province = strong or (item.province_hint if item.province_hint in PROVINCES else None)
+    strong = detect_province(item.title, f"{item.summary} {body}")
+    province = strong or (None if item.is_gnews else (item.province_hint if item.province_hint in PROVINCES else None))
     if not province:
         return "out_of_scope"
     info = extract_rules(item.title, f"{item.summary}\n{body}".strip(), item.published, today)
@@ -163,9 +163,14 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
 # ---------- Thu thập ----------
 def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     today = config.today()
-    if db.get("fix_prep_v1") != "1":  # dọn một lần dữ liệu cũ bị nhận nhầm ngày chuẩn bị
-        log.info("Dọn dữ liệu cũ: %d sự kiện đã gộp", dedupe_existing(db, None))
-        db.set("fix_prep_v1", "1")
+    if db.get("fix_gnews_v1") != "1":
+        db.conn.execute("DELETE FROM events WHERE start_date IS NULL AND sources LIKE '%news.google.com%'")
+        db.conn.execute("DELETE FROM articles WHERE url LIKE 'https://news.google.com/%'")
+        db.conn.commit()
+        db.set("fix_gnews_v1", "1")
+    db.conn.execute("DELETE FROM articles WHERE status='no_body' AND seen_at < ?",
+                    ((config.now() - timedelta(hours=6)).isoformat(timespec="seconds"),))
+    db.conn.commit()
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []
@@ -194,10 +199,13 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         if not hits or has_negative(it.title):
             db.add_article(it.link, it.source_id, it.title, "skip")
             continue
-        body = ""
-        if stats["fetched"] < cap:
-            body = fetch_article_text(it)
-            stats["fetched"] += 1
+        if stats["fetched"] >= cap:
+            continue  # lượt sau xử lý tiếp
+        body = fetch_article_text(it)
+        stats["fetched"] += 1
+        if not body and it.is_gnews:
+            db.add_article(it.link, it.source_id, it.title, "no_body")
+            continue
         status = ingest(db, it, body, llm, today)
         db.add_article(it.link, it.source_id, it.title, status)
         if status == "new":
