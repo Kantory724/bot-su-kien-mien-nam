@@ -90,8 +90,3 @@ def max_article_fetch() -> int:
 
 def llm_max_calls() -> int:
     return env_int("LLM_MAX_CALLS", 30)
-
-
-def collect_budget_sec() -> int:
-    """Thời gian tối đa (giây) cho một lượt thu thập khi chạy nền (serve/tick). 0 = không giới hạn."""
-    return env_int("COLLECT_BUDGET_SEC", 200)

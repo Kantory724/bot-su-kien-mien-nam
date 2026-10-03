@@ -60,13 +60,13 @@ def tick(db: DB, tg: Telegram, llm: LLM | None = None, poll_timeout: int = 0) ->
     now = config.now()
     age = _last_collect_age(db)
     if age is None or age >= timedelta(minutes=config.collect_interval_min()):
-        run_collect(db, tg, llm, budget=config.collect_budget_sec())
+        run_collect(db, tg, llm)
         age = timedelta(0)
 
     due = (now.hour >= config.digest_hour() and now.hour < 22 and db.get("last_digest_date") != now.date().isoformat())
     if due:
         if age >= timedelta(minutes=30):
-            run_collect(db, tg, llm, budget=config.collect_budget_sec())
+            run_collect(db, tg, llm)
         if run_digest(db, tg):
             if now.weekday() == 0 and db.get("last_week_excel") != now.date().isoformat():
                 _send_excel(db, tg, "week")

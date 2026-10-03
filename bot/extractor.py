@@ -5,21 +5,16 @@ from datetime import date, timedelta
 from .geo import PROVINCES, normalize
 
 # ---------- Lọc tin liên quan ----------
-# Từ khóa MẠNH: bài phải có ít nhất một từ mới được coi là tin sự kiện (đã bỏ hội nghị, hội thảo, khai mạc... vì quá rộng)
 EVENT_KW = [
     "le hoi", "festival", "dai nhac hoi", "concert", "liveshow", "live show", "phao hoa", "countdown",
-    "hoi cho", "trien lam", "marathon", "giai chay", "via ba", "ok om bok", "chol chnam thmay",
-    "sen dolta", "dem nhac", "nhac hoi", "dua ghe", "dua bo", "dua thuyen", "carnival", "lien hoan",
-    "giao thua", "chao nam moi", "tuan le van hoa", "tuan le du lich", "le roc", "dai le", "le cung",
+    "khai mac", "be mac", "hoi cho", "trien lam", "marathon", "giai chay", "giai dau", "via ba",
+    "cung dinh", "le cung", "ok om bok", "chol chnam thmay", "sen dolta", "le ky niem", "hoi nghi",
+    "hoi thao", "dem nhac", "dua ghe", "dua bo", "dua thuyen", "giao thua", "chao nam moi",
+    "carnival", "lien hoan", "tuan le van hoa", "dai le", "le roc", "vu lan", "trung thu",
+    "nghi le", "ky nghi", "tet nguyen dan", "nhac hoi", "tuan le du lich", "ngay hoi",
 ]
-# Cụm phủ định (xét trên TIÊU ĐỀ): hội họp, tin đã diễn ra xong, bài tổng hợp/gợi ý, tin không liên quan
-NEG_KW = [
-    "tai nan", "tu vong", "khoi to", "bat giu", "lua dao", "chung khoan", "gia vang", "ngoai hang anh",
-    "premier league", "champions league", "hoi nghi", "hoi thao", "dai hoi", "tong ket", "be mac",
-    "da dien ra", "vua dien ra", "vua ket thuc", "dem qua", "toi qua", "hom qua", "top", "diem danh",
-    "goi y", "cam nang", "kinh nghiem", "nhung le hoi", "cac le hoi", "lich le hoi", "tuyen sinh",
-]
-_LISTICLE = re.compile(r"^\d+ (?:le hoi|su kien|dia diem|diem den|mon|cach)\b")
+NEG_KW = ["tai nan", "tu vong", "khoi to", "bat giu", "lua dao", "chung khoan", "gia vang",
+          "ngoai hang anh", "premier league", "champions league"]
 
 
 def event_keyword_hits(text: str) -> list[str]:
@@ -28,13 +23,8 @@ def event_keyword_hits(text: str) -> list[str]:
 
 
 def has_negative(title: str) -> bool:
-    n = normalize(title)
-    return bool(_LISTICLE.match(n)) or any(f" {k} " in f" {n} " for k in NEG_KW)
-
-
-def is_candidate(title: str, summary: str = "") -> bool:
-    """Tin có thể là sự kiện cụ thể: có từ khóa mạnh trong tiêu đề/tóm tắt và tiêu đề không thuộc loại phủ định."""
-    return bool(event_keyword_hits(f"{title} {summary}")) and not has_negative(title)
+    n = f" {normalize(title)} "
+    return any(f" {k} " in n for k in NEG_KW)
 
 
 # ---------- Ngày ----------
@@ -47,8 +37,8 @@ R_SHORT = re.compile(rf"(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\
 R_WORD1 = re.compile(rf"(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}", re.I)
 R_SINGLE = re.compile(rf"(?<![\d/])(\d{{1,2}})\s*/\s*(\d{{1,2}}){_Y}(?![\d/])", re.I)
 R_WSINGLE = re.compile(rf"(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}", re.I)
-R_DASH = re.compile(r"\bngày\s*(\d{1,2})\s*-\s*(\d{1,2})(?![\d/]|\s*tháng)", re.I)
 R_LUNAR = re.compile(r"\s*\(?\s*(?:âm lịch|âm|âl)\b", re.I)
+R_DEADLINE = re.compile(r"trước\s*(?:ngày\s*)?$", re.I)
 
 
 def _mk(d: int, m: int, y: int | None, ref: date) -> date | None:
@@ -73,7 +63,7 @@ def find_dates(text: str, ref: date) -> list[tuple[int, date, date]]:
     def take(rx, build):
         nonlocal masked
         for m in list(rx.finditer(masked)):
-            if R_LUNAR.match(masked[m.end(): m.end() + 14]):
+            if R_LUNAR.match(masked[m.end(): m.end() + 14]) or R_DEADLINE.search(masked[max(0, m.start() - 12): m.start()]):
                 masked = masked[: m.start()] + " " * (m.end() - m.start()) + masked[m.end():]
                 continue
             res = build(m)
@@ -105,12 +95,6 @@ def find_dates(text: str, ref: date) -> list[tuple[int, date, date]]:
     take(R_WORD2, full)
     take(R_SHORT, short)
     take(R_WORD1, short)
-
-    def dash(m):  # "ngày 25-9" = 25/9 (nếu tháng > 12 thì _mk trả None, tức là khoảng ngày như "ngày 17-18")
-        a = _mk(int(m.group(1)), int(m.group(2)), None, ref)
-        return (a, a) if a else None
-
-    take(R_DASH, dash)
     take(R_SINGLE, single)
     take(R_WSINGLE, single)
     return sorted(found)
@@ -252,6 +236,18 @@ def clean_title(t: str) -> str:
     return t.strip(" \"'“”")[:160]
 
 
+_NAME_PREFIX = re.compile(
+    r"^(?:(?:hoàn tất|khẩn trương|tất bật|rộn ràng|nhộn nhịp|háo hức)\s+)?(?:(?:công tác|việc)\s+)?"
+    r"(?:chuẩn bị|sẵn sàng|chờ đón|đón chờ)(?:\s+cho)?\s+", re.I)
+_NAME_SUFFIX = re.compile(r"\s*[,:\-–]?\s*(?:trước|vào|từ|diễn ra|sẽ diễn ra|sắp diễn ra)\s+(?:ngày\s+)?\d.*$", re.I)
+
+
+def canonical_name(name: str) -> str:
+    """Bỏ cụm 'hoàn tất công tác chuẩn bị', 'sẵn sàng cho'... và đuôi ngày để còn lại tên sự kiện."""
+    n = _NAME_SUFFIX.sub("", _NAME_PREFIX.sub("", (name or "").strip())).strip(" ,:-–")
+    return (n[:1].upper() + n[1:]) if len(n) >= 8 else (name or "").strip()
+
+
 def make_summary(text: str) -> str:
     for s in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
         s = s.strip()
@@ -260,11 +256,20 @@ def make_summary(text: str) -> str:
     return (text or "").strip()[:220]
 
 
+PREP_KW = ["chuan bi", "san sang", "hoan tat", "khan truong", "tat bat"]
+
+
+def is_prep_title(title: str) -> bool:
+    """Tít kiểu 'hoàn tất công tác chuẩn bị / sẵn sàng cho...': ngày trong tít là hạn chót, không phải ngày diễn ra."""
+    n = f" {normalize(title)} "
+    return any(f" {k} " in n for k in PREP_KW)
+
+
 def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
     """Trích xuất bằng luật. `ref` = ngày làm mốc suy luận năm (thường là ngày đăng bài)."""
     r = pub or ref
     full = f"{title}\n{body}"
-    dates = find_dates(title, r) or find_dates(body, r)
+    dates = ([] if is_prep_title(title) else find_dates(title, r)) or find_dates(body, r)
     chosen = choose_date(dates, r)
     venue, ward = find_venue(full), find_ward(full)
     if venue and ward and normalize(ward) not in normalize(venue):
@@ -272,7 +277,7 @@ def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
     elif not venue:
         venue = ward
     return {
-        "name": clean_title(title),
+        "name": canonical_name(clean_title(title)),
         "venue": venue,
         "start_date": chosen[0] if chosen else None,
         "end_date": chosen[1] if chosen else None,
@@ -280,5 +285,5 @@ def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
         "crowd": find_crowd(full),
         "fireworks": has_fireworks(full),
         "big_concert": has_big_concert(full),
-        "summary": make_summary(body or clean_title(title)),
+        "summary": make_summary(body or title),
     }
