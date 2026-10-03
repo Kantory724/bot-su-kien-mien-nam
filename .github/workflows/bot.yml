@@ -39,7 +39,13 @@ jobs:
           LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
-        run: python main.py ${{ github.event.inputs.action || 'tick' }}
+        run: |
+          ACTION="${{ github.event.inputs.action }}"
+          if [ -z "$ACTION" ] || [ "$ACTION" = "tick" ]; then
+            timeout -s INT 285 python main.py serve || true
+          else
+            python main.py $ACTION
+          fi
 
       - name: Lưu CSDL về repo
         if: always()
