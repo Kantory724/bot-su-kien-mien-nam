@@ -1,4 +1,5 @@
 """Xử lý lệnh người dùng gõ vào bot: /homnay /tuannay /tinh /sukien ..."""
+import json
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -16,6 +17,22 @@ HELP = """Bot tin lễ hội, sự kiện miền Nam
 /trangthai – tình trạng hệ thống và các nguồn tin
 /id – xem Chat ID của cuộc trò chuyện này
 Tỉnh hỗ trợ: """ + ", ".join(v[0] for v in PROVINCES.values())
+
+
+STAT_LABELS = [("items", "bài mới xem"), ("fetched", "bài đã tải nội dung"), ("body_empty", "không đọc được nội dung bài"),
+               ("new", "sự kiện mới"), ("merged", "gộp vào sự kiện cũ"), ("dup", "trùng"),
+               ("skip", "không phải sự kiện"), ("out_of_scope", "ngoài địa bàn"), ("no_date", "thiếu ngày"),
+               ("past", "đã qua"), ("far", "quá xa"), ("not_event", "AI loại"), ("failed", "nguồn lỗi")]
+
+
+def _stats_text(raw: str | None) -> str:
+    try:
+        st = json.loads(raw or "")
+    except ValueError:
+        return "Kết quả thu thập: chưa có"
+    parts = [f"{lab} {st[k]}" for k, lab in STAT_LABELS if st.get(k)]
+    note = " (dừng sớm, sẽ làm tiếp)" if st.get("stopped_early") else ""
+    return "Kết quả thu thập gần nhất: " + (", ".join(parts) or "không có bài mới") + note
 
 
 @dataclass
@@ -70,6 +87,7 @@ def handle(text: str, chat_id: str, db: DB) -> Reply:
         lines = [f"Số sự kiện đang lưu: {db.count_events()}",
                  f"Lần thu thập gần nhất: {db.get('last_collect', 'chưa có')}",
                  f"Bản tin gần nhất: {db.get('last_digest_date', 'chưa có')}",
+                 _stats_text(db.get("last_stats")),
                  f"Nguồn: {len(rows)} (lỗi: {len(bad)})"]
         lines += [f" - {r['name']}: lỗi {r['fail_count']} lần – {r['last_error'][:80]}" for r in bad]
         return Reply(["\n".join(lines)])

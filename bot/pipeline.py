@@ -1,5 +1,6 @@
 """Luồng chính: thu thập -> lọc -> trích xuất -> khử trùng -> lưu -> cảnh báo; và bản tin hằng ngày."""
 import difflib
+import json
 import logging
 import re
 import time
@@ -136,10 +137,12 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date) -> str:
 
 
 # ---------- Thu thập ----------
-def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
+def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None, budget: int = 0) -> dict:
+    """budget > 0: dừng sớm khi quá số giây này (lượt sau làm tiếp phần còn lại), tránh bị cắt ngang khi chạy nền."""
+    started = time.monotonic()
     today = config.today()
     sources = load_sources()
-    stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
+    stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "body_empty": 0, "llm": 0}
     items: list[Item] = []
 
     for src in sources:
@@ -161,6 +164,9 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     for it in items:
         if db.seen(it.link):
             continue
+        if budget and time.monotonic() - started > budget:
+            stats["stopped_early"] = 1
+            break
         stats["items"] += 1
         if not is_candidate(it.title, it.summary):
             db.add_article(it.link, it.source_id, it.title, "skip")
@@ -169,12 +175,11 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         if stats["fetched"] < cap:
             body = fetch_article_text(it)
             stats["fetched"] += 1
+            if not body:
+                stats["body_empty"] += 1
         status = ingest(db, it, body, llm, today)
         db.add_article(it.link, it.source_id, it.title, status)
-        if status == "new":
-            stats["new"] += 1
-        elif status == "merged":
-            stats["merged"] += 1
+        stats[status] = stats.get(status, 0) + 1
     db.conn.commit()
     if llm:
         stats["llm"] = llm.calls
@@ -184,7 +189,12 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     if tg:
         send_alerts(db, tg)
     db.purge_old()
-    db.set("last_collect", config.now().isoformat(timespec="seconds"))
+    if stats.get("stopped_early"):  # chưa xong: hẹn làm tiếp sau ~5 phút thay vì chờ cả chu kỳ
+        resume = config.now() - timedelta(minutes=max(config.collect_interval_min() - 5, 0))
+        db.set("last_collect", resume.isoformat(timespec="seconds"))
+    else:
+        db.set("last_collect", config.now().isoformat(timespec="seconds"))
+    db.set("last_stats", json.dumps(stats))
     log.info("Xong thu thập: %s", stats)
     return stats
 
