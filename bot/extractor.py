@@ -16,7 +16,7 @@ STRONG_KW = [
     "vu lan", "trung thu", "tet nguyen dan", "ngay hoi", "ngay hoi van hoa", "gala", "chuong trinh nghe thuat",
     "dem nghe thuat", "le dang huong", "hoi xuan", "hoi hoa", "dai le", "cho hoa", "duong hoa",
     # lễ hội truyền thống, tín ngưỡng (không cần quy mô)
-    "ky yen", "nghinh ong", "cau ngu", "le via", "via ba", "le hoi dinh", "cung dinh", "le cung dinh", "le ha dien",
+    "sene dolta", "sene dolta", "don ta", "sen don ta", "cung ong ba", "ky yen", "nghinh ong", "cau ngu", "le via", "via ba", "le hoi dinh", "cung dinh", "le cung dinh", "le ha dien",
     "gio to", "le hoi chua", "le hoi den", "le hoi mieu", "hoi dinh", "le thanh minh", "le vu lan",
     # ngày lễ, Tết, kỳ nghỉ dài
     "nghi le", "ky nghi le", "dip le", "dip tet", "don tet", "quoc khanh", "gio to hung vuong",
@@ -339,7 +339,7 @@ def find_ward(text: str) -> str:
 # ---------- TÊN SỰ KIỆN (không phải tiêu đề bài báo) ----------
 # Hạng 0 = sự kiện "mẹ" (lễ hội, hội chợ...). Hạng 1 = sự kiện/hoạt động có thể nằm trong một sự kiện mẹ.
 _P0 = (r"Lễ\s+hội|Festival|Ngày\s+hội|Hội\s+chợ|Lễ\s+Vía|Vía\s+Bà|Ok\s+Om\s+Bok|Chol\s+Chnam\s+Thmay|"
-       r"Sen\s+Dolta|Lễ\s+Dolta|Lễ\s+cúng\s+Trăng|Lễ\s+Kỳ\s+Yên|Lễ\s+Nghinh\s+Ông|Lễ\s+Cầu\s+Ngư|Lễ\s+Hạ\s+điền|"
+       r"Sene?\s+Dolta|Sen\s+Đôn\s+Ta|Đôn\s+Ta|Lễ\s+cúng\s+Ông\s+Bà|Lễ\s+Dolta|Lễ\s+cúng\s+Trăng|Lễ\s+Kỳ\s+Yên|Lễ\s+Nghinh\s+Ông|Lễ\s+Cầu\s+Ngư|Lễ\s+Hạ\s+điền|"
        r"Lễ\s+cúng\s+đình|Cúng\s+đình|Lễ\s+Giỗ\s+Tổ|Giỗ\s+Tổ|Lễ\s+Vu\s+Lan|Lễ\s+hội\s+Kỳ\s+Yên")
 _P1 = (r"Đại\s+nhạc\s+hội|Hội\s+đua|Hội\s+xuân|Hội\s+hoa|Liên\s+hoan|Tuần\s+lễ|Carnival|Countdown|"
        r"Marathon|Giải\s+chạy|Triển\s+lãm|Chợ\s+hoa|Đường\s+hoa|Đêm\s+hội|Lễ\s+rước|Lễ\s+đón|"
@@ -363,6 +363,9 @@ _LISTHEAD = "Thể|Du|Văn|Ẩm|Thương|Nghệ"  # "Văn hóa, Thể thao và D
 
 def _name_from(text: str, start: int) -> str:
     """Lấy cụm tên bắt đầu từ vị trí `start`: dừng ở dấu câu hoặc cụm chỉ hành động (khai mạc, tại, thu hút...)."""
+    qm = re.match(r"([^“\"”;:()|\n]{0,25}?)\s*[“\"]([^”\"\n]{3,70})[”\"]", text[start:start + 170])
+    if qm and 1 <= len(qm.group(1).split()) <= 4:
+        return f"{qm.group(1).strip()} {qm.group(2).strip()}"
     seg = re.split(rf"[;:()|\n]|\.\s|,\s+(?!(?:{_LISTHEAD})\b)|\s[-–—]\s+(?!(?:{_LISTHEAD})\b)",
                    text[start:start + 170], maxsplit=1)[0]
     seg = re.sub("[“”\"‘’']", "", seg)
@@ -394,9 +397,14 @@ def _name_from(text: str, start: int) -> str:
     return " ".join(out).strip(" ,;-–—")
 
 
+_PROPER_KW = {"sene dolta", "sen dolta", "sen don ta", "don ta", "ok om bok", "chol chnam thmay", "lop"}
+
+
 def _cap_after_kw(n: str, kw: str) -> bool:
     """Từ ngay sau loại hình (Lễ hội/Hội chợ...) phải viết hoa hoặc là số: 'Lễ hội Sen...' ok, 'đại nhạc hội lớn nhất' không."""
     toks = n.split()[len(kw.split()):]
+    if not toks and normalize(kw) in _PROPER_KW:  # kw tự nó đã là tên riêng ("Ok Om Bok", "Sene Dolta")
+        return True
     return any(t[:1].isupper() or t[:1].isdigit() for t in toks)
 
 
@@ -423,6 +431,12 @@ def event_name(title: str, body: str = "") -> str:
                 n = _name_from(src, m.start())
                 if _valid_event_name(n) and _cap_after_kw(n, m.group(0)):
                     return n
+    for src in (t, lead):
+        mm = re.search(r"((?:[A-ZĐÀ-Ỹ][\wà-ỹ]*\s+){1,5}(?:Music\s+)?(?:Marathon|Run)(?:\s+20\d\d)?)", src)
+        if mm and len(mm.group(1).split()) >= 3:
+            nm = re.sub(r"^(?:Giải|Sự kiện|Chương trình)\s+(?:chạy\s+)?", "", mm.group(1)).strip()
+            if _valid_event_name(nm):
+                return nm
     # 2) tít có lễ hội mẹ -> lấy; rồi đến hạng 1 trong tít; rồi lễ hội mẹ trong đoạn đầu bài
     for rx, src in ((_RX0, t), (_RX1, t), (_RX0, lead)):
         for m in rx.finditer(src):
