@@ -40,6 +40,8 @@ def format_event(e: Event, show_summary: bool = False) -> str:
         lines.append("Quy mô: " + " · ".join(scale))
     if show_summary and e.summary:
         lines.append(f"Tóm tắt: {e.summary}")
+    if not e.sources:
+        lines.append("Nguồn: AI tìm kiếm Google (nên đối chiếu)")
     if e.sources:
         extra = f" (+{len(e.sources) - 1} nguồn khác)" if len(e.sources) > 1 else ""
         lines.append(f"Nguồn: {e.sources[0]}{extra}")

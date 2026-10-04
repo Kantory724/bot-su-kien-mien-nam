@@ -138,6 +138,21 @@ def enrich_event(ev: Event, llm, today: date, deadline: float) -> bool:
     return changed
 
 
+def _lookup_ai(ev: Event, llm, today: date) -> bool:
+    """Tra ngày/địa điểm bằng Gemini + Google Search (không cần giải mã link Google News)."""
+    d = llm.lookup(ev.name, ev.province, today)
+    if not d:
+        return False
+    if d["end_date"] and d["end_date"] < today - timedelta(days=3):
+        return False
+    if ev.start_date and abs((ev.start_date - d["start_date"]).days) > 3:
+        return False
+    cand = Event(name=ev.name, province=ev.province, venue=d["venue"] if valid_venue(d["venue"]) else "",
+                 start_date=d["start_date"], end_date=d["end_date"] or d["start_date"], start_time=d["start_time"],
+                 crowd=d["crowd"], fireworks=d["fireworks"], big_concert=d["big_concert"], summary=d["summary"], sources=[])
+    return merge_into(ev, cand)
+
+
 def _pending(db, today: date) -> list[Event]:
     out = []
     for e in db.all_events():
@@ -156,7 +171,7 @@ def enrich_events(db, llm, today: date, force: bool = False, limit: int | None =
     """Làm giàu các sự kiện còn thiếu ngày/địa điểm. Trả về số sự kiện được bổ sung."""
     limit = limit or config.enrich_max()
     deadline = time.monotonic() + config.enrich_budget_sec()
-    done, now = 0, config.now()
+    done, now, lookups = 0, config.now(), 0
     for ev in _pending(db, today):
         if done >= limit or time.monotonic() > deadline:
             break
@@ -172,6 +187,12 @@ def enrich_events(db, llm, today: date, force: bool = False, limit: int | None =
         except Exception as e:  # noqa - 1 sự kiện lỗi không làm hỏng cả lượt
             log.warning("Làm giàu '%s' lỗi: %s", ev.name[:50], type(e).__name__)
             changed = False
+        if (not (ev.start_date and ev.venue) and llm and llm.can_search() and lookups < config.lookup_max()):
+            lookups += 1
+            try:
+                changed = _lookup_ai(ev, llm, today) or changed
+            except Exception as ex:  # noqa
+                log.warning("Tra AI '%s' lỗi: %s", ev.name[:50], type(ex).__name__)
         if changed:
             db.update_event(ev)
             log.info("Bổ sung: %s | %s | %s", ev.name[:50], ev.start_date, ev.venue)

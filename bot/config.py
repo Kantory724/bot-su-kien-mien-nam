@@ -103,9 +103,22 @@ def enrich_budget_sec() -> int:
 
 
 def llm_max_calls() -> int:
-    return env_int("LLM_MAX_CALLS", 30)
+    return env_int("LLM_MAX_CALLS", 60)
 
 
 def collect_budget_sec() -> int:
     """Tổng thời gian tối đa cho một lượt thu thập (giây). Hết giờ thì dừng êm, phần còn lại để lượt sau xử lý."""
     return env_int("COLLECT_BUDGET_SEC", 540)
+
+
+def llm_search_max() -> int:
+    """Số lần gọi Gemini có Google Search tối đa mỗi lượt thu thập (tìm sự kiện + tra ngày/địa điểm)."""
+    return env_int("LLM_SEARCH_MAX", 8)
+
+
+def lookup_max() -> int:
+    return env_int("LOOKUP_MAX", 4)
+
+
+def discover_provinces_per_run() -> int:
+    return env_int("DISCOVER_PER_RUN", 2)

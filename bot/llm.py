@@ -33,6 +33,25 @@ A: {a}
 B: {b}"""
 
 
+OLD_NAMES = {"hcm": "Bình Dương, Bà Rịa - Vũng Tàu", "dongnai": "Bình Phước", "tayninh": "Long An",
+             "angiang": "Kiên Giang (Phú Quốc, Rạch Giá, Hà Tiên)", "dongthap": "Tiền Giang", "vinhlong": "Bến Tre, Trà Vinh",
+             "cantho": "Sóc Trăng, Hậu Giang", "camau": "Bạc Liêu"}
+
+DISCOVER_PROMPT = """Hôm nay là {today}. Dùng Google Search tìm các sự kiện SẮP HOẶC ĐANG diễn ra từ {a} đến {b} tại {name} (sau sáp nhập 2025, gồm cả {old}).
+Loại sự kiện: lễ hội truyền thống/tín ngưỡng (vía, cúng đình, Ok Om Bok, Sene Dolta, Nghinh Ông, Giỗ...), sự kiện văn hóa/du lịch/kỷ niệm/khai mạc cấp tỉnh,
+thể thao/marathon/ca nhạc/đại nhạc hội/pháo hoa/countdown, hội chợ/triển lãm/hội nghị lớn, sự kiện tại sân bay/cảng/khu du lịch đông khách, kỳ nghỉ lễ/Tết.
+Chỉ nêu sự kiện DIỄN RA tại {name} (không phải đoàn của tỉnh này đi biểu diễn nơi khác) và có ngày rõ ràng trong nguồn. Không bịa.
+Trả về DUY NHẤT một mảng JSON (không markdown, không giải thích). Mỗi phần tử có các khóa:
+name (tên lễ hội/sự kiện, ngắn gọn), venue (địa điểm cụ thể + phường/xã, hoặc ""), start_date (YYYY-MM-DD), end_date (YYYY-MM-DD),
+start_time (HH:MM hoặc ""), crowd (số người dự kiến hoặc null; lễ hội truyền thống không cần), fireworks (bool), big_concert (bool), summary (1 câu tiếng Việt).
+Nếu không có sự kiện nào thì trả []."""
+
+LOOKUP_PROMPT = """Hôm nay là {today}. Dùng Google Search tìm thông tin sự kiện "{name}" tại {pname} (gồm cả {old}) sắp diễn ra.
+Trả về DUY NHẤT một JSON object (không markdown): start_date (YYYY-MM-DD hoặc null), end_date (YYYY-MM-DD hoặc null),
+venue (địa điểm cụ thể + phường/xã, hoặc ""), start_time (HH:MM hoặc ""), crowd (số hoặc null), fireworks (bool), big_concert (bool),
+summary (1 câu tiếng Việt). Chỉ lấy đợt tổ chức sắp tới/đang diễn ra; không chắc thì null/"". Không bịa."""
+
+
 class LLM:
     def __init__(self):
         self.provider = config.env("LLM_PROVIDER").lower()
@@ -41,6 +60,8 @@ class LLM:
         self.calls = 0
         self.disabled = False
         self.last_error = ""
+        self.search_calls = 0
+        self.disc_off = False
 
     @property
     def enabled(self) -> bool:
@@ -56,7 +77,10 @@ class LLM:
             return "TẮT - chưa có secret LLM_API_KEY"
         if self.disabled:
             return f"TỰ TẮT do bị từ chối/hết hạn mức ({self.last_error}); đã gọi {self.calls}"
-        return f"BẬT ({self.provider}/{self.model}), đã gọi {self.calls}/{config.llm_max_calls()}"
+        s = f"BẬT ({self.provider}/{self.model}), đã gọi {self.calls}/{config.llm_max_calls()}"
+        if self.provider == "gemini":
+            s += f"; tìm kiếm Google {self.search_calls}/{config.llm_search_max()}" + (f" (TẮT: {self.last_error})" if self.disc_off else "")
+        return s
 
     def _call(self, prompt: str) -> str:
         if self.provider == "gemini":
@@ -75,6 +99,73 @@ class LLM:
             timeout=60)
         r.raise_for_status()
         return r.json()["content"][0]["text"]
+
+    def can_search(self) -> bool:
+        return bool(self.provider == "gemini" and self.key and not self.disc_off
+                    and self.search_calls < config.llm_search_max())
+
+    def _search_call(self, prompt: str) -> str | None:
+        """Gọi Gemini kèm công cụ Google Search (đọc web trực tiếp, không phụ thuộc link Google News)."""
+        self.search_calls += 1
+        try:
+            r = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent",
+                headers={"x-goog-api-key": self.key, "Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": prompt}]}], "tools": [{"google_search": {}}],
+                      "generationConfig": {"temperature": 0}},
+                timeout=120)
+            r.raise_for_status()
+            parts = r.json()["candidates"][0]["content"]["parts"]
+            return "".join(p.get("text", "") for p in parts)
+        except requests.HTTPError as e:
+            code = e.response.status_code if e.response is not None else 0
+            log.warning("Gemini tìm kiếm lỗi HTTP %s: %s", code, (e.response.text[:200] if e.response is not None else ""))
+            if code in (400, 401, 403, 429):
+                self.last_error = f"HTTP {code}"
+                self.disc_off = True
+            return None
+        except Exception as e:  # noqa
+            log.warning("Gemini tìm kiếm lỗi: %s", type(e).__name__)
+            return None
+
+    def discover(self, pkey: str, today: date, days: int = 21) -> list[dict] | None:
+        """Hỏi Gemini (có Google Search) các sự kiện của một tỉnh trong `days` ngày tới. None = lỗi gọi."""
+        from datetime import timedelta
+        if not self.can_search():
+            return None
+        txt = self._search_call(DISCOVER_PROMPT.format(
+            today=today.isoformat(), a=today.strftime("%d/%m/%Y"), b=(today + timedelta(days=days)).strftime("%d/%m/%Y"),
+            name=PROVINCES[pkey][0], old=OLD_NAMES.get(pkey, "")))
+        if txt is None:
+            return None
+        m = re.search(r"\[.*\]", txt, re.S)
+        try:
+            arr = json.loads(m.group(0)) if m else []
+        except ValueError:
+            return []
+        out = []
+        for raw in arr if isinstance(arr, list) else []:
+            if isinstance(raw, dict):
+                c = self._clean({**raw, "is_event": True, "province": pkey})
+                if c["name"] and c["start_date"]:
+                    out.append(c)
+        return out
+
+    def lookup(self, name: str, pkey: str, today: date) -> dict | None:
+        """Tra ngày/địa điểm của MỘT sự kiện đã biết tên bằng Gemini + Google Search."""
+        if not self.can_search():
+            return None
+        txt = self._search_call(LOOKUP_PROMPT.format(today=today.isoformat(), name=name, pname=PROVINCES[pkey][0],
+                                                     old=OLD_NAMES.get(pkey, "")))
+        m = re.search(r"\{.*\}", txt or "", re.S)
+        try:
+            raw = json.loads(m.group(0)) if m else None
+        except ValueError:
+            return None
+        if not isinstance(raw, dict):
+            return None
+        c = self._clean({**raw, "is_event": True, "province": pkey, "name": name})
+        return c if c["start_date"] else None
 
     def extract(self, title: str, body: str, pub: date | None, today: date) -> dict | None:
         if not self.enabled:

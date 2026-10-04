@@ -3,7 +3,7 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
@@ -133,6 +133,60 @@ def prune_elsewhere(db: DB) -> list[str]:
             db.delete_event(e.id)
             gone.append(f"{e.start_date} | {e.name[:70]}")
     return gone
+
+
+def ingest_ai(db: DB, d: dict, province: str, today: date) -> str:
+    """Nhận một sự kiện do Gemini (Google Search) tìm được: lọc nhẹ, khử trùng, lưu."""
+    name = canonical_name(d["name"])
+    if (len(name) < 6 or has_negative(name) or title_elsewhere(name) or d["start_date"] is None
+            or not_vietnamese(f"{name} {d['summary']}")):
+        return "not_event"
+    head, tail = f"{name} {d['venue']}", d["summary"]
+    sc = score_provinces(head, tail)
+    best = max(sc, key=sc.get) if sc else None
+    if best and best != province and sc[best] > sc.get(province, 0):
+        province = best  # Gemini trả nhầm tỉnh: theo tỉnh được nhắc nhiều nhất trong tên/địa điểm/tóm tắt
+    if other_area_score(head, tail) > sc.get(province, 0):
+        return "out_of_scope"
+    ev = Event(name=name, province=province, venue=d["venue"] if valid_venue(d["venue"]) else "",
+               start_date=d["start_date"], end_date=d["end_date"] or d["start_date"], start_time=d["start_time"],
+               crowd=d["crowd"], fireworks=d["fireworks"], big_concert=d["big_concert"], summary=d["summary"], sources=[])
+    if ev.last_date < today - timedelta(days=3):
+        return "past"
+    if ev.start_date > today + timedelta(days=75):
+        return "far"
+    match = next((c for c in db.candidates_for_dedupe(province, ev.start_date, ev.end_date) if is_duplicate(ev, c)), None)
+    if match:
+        if merge_into(match, ev):
+            db.update_event(match)
+            return "merged"
+        return "dup"
+    db.insert_event(ev)
+    return "new"
+
+
+def run_discover(db: DB, llm: LLM | None, today: date, deadline: float) -> int:
+    """Mỗi lượt hỏi Gemini+Google Search về vài tỉnh (tỉnh nào lâu chưa hỏi nhất trước, mỗi tỉnh >= 12 giờ/lần)."""
+    if not llm or not llm.can_search():
+        return 0
+    now, new, done = config.now(), 0, 0
+    for k in sorted(PROVINCES, key=lambda k: db.get(f"disc_{k}", "")):
+        if done >= config.discover_provinces_per_run() or deadline - time.monotonic() < 45 or not llm.can_search():
+            break
+        last = db.get(f"disc_{k}")
+        if last and now - datetime.fromisoformat(last) < timedelta(hours=12):
+            break  # đã xếp theo thời điểm cũ nhất; các tỉnh còn lại đều mới hỏi
+        res = llm.discover(k, today)
+        if res is None:
+            break  # lỗi gọi (hết hạn mức...) - thử lại lượt sau
+        done += 1
+        for d in res:
+            if ingest_ai(db, d, k, today) == "new":
+                new += 1
+        db.set(f"disc_{k}", now.isoformat(timespec="seconds"))
+        log.info("AI tìm kiếm %s: %d sự kiện", k, len(res))
+        time.sleep(2)
+    return new
 
 
 def prune_foreign(db: DB) -> list[str]:
@@ -276,6 +330,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     items: list[Item] = []
     t0 = time.monotonic()
     deadline = t0 + config.collect_budget_sec()
+    art_deadline = deadline - min(90, config.collect_budget_sec() // 3)  # chừa thời gian cho tìm kiếm AI + làm giàu
 
     def _one(src):
         try:
@@ -309,7 +364,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         if (not hits and not it.is_gnews) or has_negative(it.title):
             db.add_article(it.link, it.source_id, it.title, "skip")
             continue
-        if stats["fetched"] >= cap or time.monotonic() > deadline:
+        if stats["fetched"] >= cap or time.monotonic() > art_deadline:
             continue  # lượt sau xử lý tiếp, chưa đánh dấu đã xem
         body = fetch_article_text(it)
         stats["fetched"] += 1
@@ -330,9 +385,15 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     db.set("last_gn", f"giải mã được {GN_STATS['ok']}, thất bại {GN_STATS['fail']}")
     stats["gn"] = dict(GN_STATS)
 
+    try:
+        stats["discovered"] = run_discover(db, llm, today, deadline)
+        db.set("last_discover", f"{config.now().isoformat(timespec='seconds')}: thêm {stats['discovered']} sự kiện")
+    except Exception as e:  # noqa
+        log.warning("Bước tìm kiếm AI lỗi: %s", _short(e))
+
     try:  # từ tên sự kiện đã lưu, tìm lại bài báo (ưu tiên báo địa phương) để bổ sung ngày/địa điểm
         from .enrich import enrich_events
-        if deadline - time.monotonic() > 60:
+        if deadline - time.monotonic() > 30:
             stats["enriched"] = enrich_events(db, llm, today)
     except Exception as e:  # noqa
         log.warning("Bước làm giàu lỗi: %s", _short(e))
