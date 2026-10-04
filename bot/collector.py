@@ -1,5 +1,7 @@
 """Thu thập tin từ RSS / Google News / trang HTML và tải nội dung bài viết.
 
+Bản sửa 3: nguồn type auto báo lỗi theo TỪNG địa chỉ (vd "baokiengiang.vn: ConnectTimeout") và ghi log cảnh báo
+           khi một phần địa chỉ lỗi, để biết địa chỉ nào cần sửa/xoá trong sources.yaml.
 Bản sửa 2: thêm nguồn Bing News RSS (type bing_news). Link trong feed Bing chứa sẵn URL bài gốc (tham số url=)
 nên KHÔNG cần giải mã/gọi mạng thêm -> không bị Google chặn 429 khi chạy trên IP datacenter của GitHub Actions.
 Bản sửa 1: tự giải mã link Google News (không phụ thuộc hoàn toàn vào googlenewsdecoder):
@@ -195,13 +197,13 @@ def _heuristic_items(soup: BeautifulSoup, base: str, src: dict) -> list[Item]:
 
 def _fetch_auto(src: dict) -> list[Item]:
     urls = src.get("urls") or [src["url"]]
-    items, seen, ok, last = [], set(), 0, None
+    items, seen, ok, errs = [], set(), 0, []
     deadline = time.monotonic() + 45  # tối đa 45 giây cho mỗi nguồn, tránh một trang chậm làm treo cả lượt
     T = (5, 12)  # (kết nối, đọc)
     for u in urls:
         if time.monotonic() > deadline:
-            last = last or RuntimeError("quá thời gian cho nguồn này")
-            break
+            errs.append(f"{_host(u)}: quá thời gian cho nguồn này")
+            continue
         try:
             r = _get(u, timeout=T)
             got: list[Item] = []
@@ -223,9 +225,11 @@ def _fetch_auto(src: dict) -> list[Item]:
                     seen.add(it.link)
                     items.append(it)
         except Exception as e:  # noqa - 1 địa chỉ hỏng không làm hỏng cả nguồn
-            last = e
+            errs.append(f"{_host(u)}: {type(e).__name__}")
+    if errs:
+        log.warning("Nguồn %s: %d/%d địa chỉ lỗi (%s)", src.get("id"), len(errs), len(urls), "; ".join(errs))
     if not ok:
-        raise last or RuntimeError("không truy cập được địa chỉ nào")
+        raise RuntimeError("tất cả địa chỉ đều lỗi - " + "; ".join(errs) if errs else "không truy cập được địa chỉ nào")
     if not items:
         raise RuntimeError("Không tìm thấy bài nào (trang đổi giao diện hoặc chặn bot?)")
     return items
