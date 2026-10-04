@@ -27,8 +27,6 @@ def format_event(e: Event, show_summary: bool = False) -> str:
     lines = [f"[{PRIORITY_LABEL.get(e.priority, 'THẤP')}] {fmt_range(e.start_date, e.end_date)} · {province_name(e.province)}",
              e.name]
     lines.append(f"Địa điểm: {e.venue}" if e.venue else "Địa điểm: chưa rõ (xem nguồn)")
-    if e.start_time:
-        lines.append(f"Giờ: {e.start_time}")
     scale = []
     if e.shown_crowd:
         scale.append(f"~{fmt_num(e.shown_crowd)} người")
@@ -40,11 +38,7 @@ def format_event(e: Event, show_summary: bool = False) -> str:
         lines.append("Quy mô: " + " · ".join(scale))
     if show_summary and e.summary:
         lines.append(f"Tóm tắt: {e.summary}")
-    if not e.sources:
-        lines.append("Nguồn: AI tìm kiếm Google (nên đối chiếu)")
-    if e.sources:
-        extra = f" (+{len(e.sources) - 1} nguồn khác)" if len(e.sources) > 1 else ""
-        lines.append(f"Nguồn: {e.sources[0]}{extra}")
+    lines.append(f"Nguồn: {e.sources[0]}" if e.sources else "Nguồn: AI tìm kiếm Google (nên đối chiếu)")
     return "\n".join(lines)
 
 
