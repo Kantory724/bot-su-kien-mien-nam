@@ -33,6 +33,7 @@ def main(argv=None) -> int:
     sub.add_parser("collect", help="thu thập tin + cảnh báo sự kiện lớn")
     u = sub.add_parser("add-url", help="thêm tay một bài báo (link thường hoặc Google News) vào danh sách sự kiện")
     u.add_argument("url")
+    sub.add_parser("enrich", help="tìm lại bài báo để bổ sung ngày/địa điểm cho các sự kiện còn thiếu")
     sub.add_parser("dedupe", help="gộp các sự kiện trùng đã lưu trong DB")
     d = sub.add_parser("digest", help="gửi bản tin 7 ngày tới")
     d.add_argument("--force", action="store_true", help="gửi lại dù hôm nay đã gửi")
@@ -113,6 +114,9 @@ def main(argv=None) -> int:
     try:
         if a.cmd == "collect":
             run_collect(db, tg, llm)
+        elif a.cmd == "enrich":
+            from bot.enrich import enrich_events
+            print(f"Đã bổ sung {enrich_events(db, llm, config.today(), force=True, limit=10)} sự kiện")
         elif a.cmd == "dedupe":
             print(f"Đã gộp {dedupe_existing(db, llm)} sự kiện trùng")
         elif a.cmd == "digest":
