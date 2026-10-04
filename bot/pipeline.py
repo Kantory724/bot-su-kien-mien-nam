@@ -153,10 +153,12 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
     # chỉ xét tít + phần đầu bài: nơi diễn ra sự kiện luôn nằm ở đó, tránh bài Hà Nội có nhắc TP.HCM ở cuối bài
     lead = text_all.strip()[:1500]
     # bài nhắc tới nơi NGOÀI 8 tỉnh nhiều hơn 8 tỉnh (vd tin Hà Nội đăng trên báo Vĩnh Long) -> không phải sự kiện của vùng này
-    own = score_provinces(item.title, lead)
-    oa = other_area_score(item.title, lead)
-    if oa and oa > max(own.values(), default=0):
-        return "out_of_scope"
+    full = text_all.strip()[:4000]
+    for seg in (lead, full):  # kiểm tra cả đoạn đầu lẫn toàn bài: nhắc Hà Nội/nơi khác nhiều hơn 8 tỉnh -> loại
+        own = score_provinces(item.title, seg)
+        oa = other_area_score(item.title, seg)
+        if oa and oa > max(own.values(), default=0):
+            return "out_of_scope"
     strong = detect_province(item.title, lead)
     hint = item.province_hint if item.province_hint in PROVINCES else None
     # gợi ý của nguồn chỉ được tin khi tít/đoạn mở đầu có nhắc tới tỉnh đó
@@ -192,6 +194,10 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
         bd = choose_date(find_dates(f"{item.summary}\n{body}", item.published or today), item.published or today)
         info["start_date"], info["end_date"] = bd if bd else (None, None)
     info["name"] = canonical_name(info["name"])
+    # địa điểm/tên nằm ngoài 8 tỉnh (vd "Trung tâm Hội nghị Quốc gia", "Thủ đô") -> loại
+    if (other_area_score(f"{info['name']} {info['venue']}") and
+            not score_provinces(f"{info['name']} {info['venue']}", "").get(province)):
+        return "out_of_scope"
     ev = Event(name=info["name"], province=province, venue=info["venue"], start_date=info["start_date"],
                end_date=info["end_date"], start_time=info["start_time"], crowd=info["crowd"],
                fireworks=info["fireworks"], big_concert=info["big_concert"], summary=info["summary"],

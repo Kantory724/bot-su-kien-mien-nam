@@ -45,6 +45,11 @@ OTHER_AREAS = [
     # địa danh/địa điểm nổi tiếng ở Hà Nội & nơi khác (bài viết về sự kiện ở đó dù tít không ghi tên thành phố)
     "thang long", "hoang thanh", "hoan kiem", "ba dinh", "my dinh", "trung tam hoi nghi quoc gia", "tay ho",
     "cau giay", "hai ba trung", "long bien", "ha dong", "buon ma thuot", "pleiku", "co do hue",
+    "thu do", "thu do ha noi",  # "Ngày hội Thủ đô" = Hà Nội
+    "hoa binh", "bac kan", "lai chau", "dak nong", "gia nghia", "ninh thuan", "phan rang", "binh thuan", "phan thiet",
+    "mui ne", "cam ranh", "tam ky", "sam son", "cua lo", "tuy hoa", "bai chay", "cat ba", "tam dao", "mu cang chai",
+    "phu yen", "kon tum", "ha nam", "phu ly", "tay bac", "tay nguyen", "mien bac", "mien trung", "bac bo", "trung bo",
+    "dong bang song hong", "phnom penh", "singapore", "malaysia", "indonesia",
 ]
 
 # Báo/cổng thông tin địa phương (kể cả tỉnh cũ đã sáp nhập) - dùng để ưu tiên khi tìm lại bài về một sự kiện.
