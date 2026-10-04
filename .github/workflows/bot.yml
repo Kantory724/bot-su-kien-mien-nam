@@ -21,7 +21,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       # Luôn lấy commit MỚI NHẤT lúc job bắt đầu chạy (không phải commit lúc job được xếp hàng),
       # để thấy được CSDL mà lượt trước vừa lưu -> tránh gửi bản tin 2 lần.
@@ -37,8 +37,8 @@ jobs:
 
       - name: Cài bộ giải mã link Google News
         run: |
-          pip install googlenewsdecoder "selectolax<1.0"
-          python -c "from googlenewsdecoder import gnewsdecoder; print('googlenewsdecoder OK')"
+          # Chỉ là phương án dự phòng (code đã tự giải mã link Google News) -> lỗi cài cũng không làm hỏng lượt chạy
+          pip install googlenewsdecoder "selectolax<1.0" || echo "Bỏ qua googlenewsdecoder"
 
       - name: Chạy bot
         env:
@@ -49,12 +49,15 @@ jobs:
           LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
-          MAX_ARTICLE_FETCH: "120"
+          MAX_ARTICLE_FETCH: "60"
         run: |
           ACTION="${{ github.event.inputs.action }}"
           if [ -z "$ACTION" ] || [ "$ACTION" = "tick" ]; then
+            # Lượt tự động chỉ có 285 giây: collect phải tự dừng êm trước giờ đó (tiến độ được lưu sau từng bài)
+            export COLLECT_BUDGET_SEC=230 ENRICH_BUDGET_SEC=40
             timeout -s INT 285 python main.py serve || true
           else
+            export COLLECT_BUDGET_SEC=540
             python main.py $ACTION
           fi
 
