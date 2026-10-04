@@ -197,7 +197,7 @@ def _fetch_auto(src: dict) -> list[Item]:
     urls = src.get("urls") or [src["url"]]
     items, seen, ok, last = [], set(), 0, None
     deadline = time.monotonic() + 45  # tối đa 45 giây cho mỗi nguồn, tránh một trang chậm làm treo cả lượt
-    T = (5, 12)  # (kết nối, đọc)
+    T = (15, 15)  # (kết nối, đọc)
     for u in urls:
         if time.monotonic() > deadline:
             last = last or RuntimeError("quá thời gian cho nguồn này")
