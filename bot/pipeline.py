@@ -11,7 +11,7 @@ from .db import DB
 from .extractor import (canonical_name, choose_date, event_name, event_keyword_hits, extract_rules, find_dates,
                         has_negative, is_cultural_event, is_prep_title, not_vietnamese, valid_venue)
 from .formatter import format_alert, format_digest
-from .geo import (PROVINCES, detect_province, held_elsewhere, normalize, other_area_score, score_provinces,
+from .geo import (LOCAL_SITES, PROVINCES, detect_province, held_elsewhere, normalize, other_area_score, score_provinces,
                   title_elsewhere)
 from .llm import LLM
 from .models import Event
@@ -45,9 +45,39 @@ def is_duplicate(a: Event, b: Event) -> bool:
     return jac >= 0.34 or (cont >= 0.6 and inter >= 3)
 
 
+def _phrase(name: str, province: str) -> str:
+    """Cụm từ đặc trưng (đã bỏ từ chung + tên tỉnh) của tên sự kiện, vd 'dua bo bay nui'. '' nếu quá ngắn/chung chung."""
+    n = f" {normalize(name)} "
+    for a in PROVINCES[province][1] + [normalize(PROVINCES[province][0])]:
+        n = n.replace(f" {a} ", " ")
+    ph = " ".join(t for t in n.split() if t not in STOP and not t.isdigit())
+    return ph if len(ph.split()) >= 2 and len(ph) >= 9 else ""
+
+
+def _ev_text(e: Event) -> str:
+    return f" {normalize(f'{e.name} {e.summary} {e.venue}')} "
+
+
+def mentions_same(ev: Event, c: Event, text_n: str = "") -> bool:
+    """Hai tên KHÁC nhau nhưng cùng một sự kiện: nội dung bài mới nhắc tên sự kiện đã lưu (vd bài Kenh14 tít 'Lễ hội khiến
+    ... lao đao' nhưng nội dung nói 'Hội Đua bò Bảy Núi'), hoặc ngược lại tên mới nằm trong tóm tắt của sự kiện đã lưu."""
+    pc, pe = _phrase(c.name, c.province), _phrase(ev.name, ev.province)
+    return bool((pc and pc in f" {text_n} ") or (pc and pc in _ev_text(ev)) or (pe and pe in _ev_text(c)))
+
+
+def _from_local(e: Event) -> bool:
+    """Sự kiện có nguồn từ báo địa phương của chính tỉnh đó (đáng tin hơn cho địa điểm đợt tổ chức hiện tại)."""
+    sites = LOCAL_SITES.get(e.province, [])
+    return any(d in s for s in e.sources for d in sites)
+
+
 def merge_into(old: Event, new: Event) -> bool:
     """Gộp thông tin mới vào sự kiện cũ. Trả True nếu có thay đổi."""
     changed = False
+    # địa điểm: báo địa phương ghi khác thì tin báo địa phương (bài báo chung có thể nhắc nơi cũ/nơi khởi nguồn)
+    if old.venue and new.venue and normalize(old.venue) != normalize(new.venue) \
+            and _from_local(new) and not _from_local(old):
+        old.venue, changed = new.venue, True
     for link in new.sources:
         if link not in old.sources and len(old.sources) < 6:
             old.sources.append(link)
@@ -114,7 +144,8 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
             if a.start_date and b.start_date and \
                     (max(a.start_date, b.start_date) - min(a.last_date, b.last_date)).days > 3:
                 continue
-            if is_duplicate(a, b) or (llm and llm.enabled and _maybe_same(a, b) and llm.same_event(_desc(a), _desc(b))):
+            if is_duplicate(a, b) or mentions_same(a, b) or \
+                    (llm and llm.enabled and _maybe_same(a, b) and llm.same_event(_desc(a), _desc(b))):
                 merge_into(a, b)
                 db.update_event(a)
                 if b.alerted:
@@ -290,6 +321,9 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
         return "not_event"  # tin không có từ khoá sự kiện thì phải có ngày mới giữ
     cands = db.candidates_for_dedupe(province, ev.start_date, ev.end_date)
     match = next((c for c in cands if is_duplicate(ev, c)), None)
+    if not match:  # tên khác nhau nhưng nội dung bài nhắc đúng tên sự kiện đã lưu
+        text_n = normalize(f"{item.title} {item.summary} {body[:3000]}")
+        match = next((c for c in cands if mentions_same(ev, c, text_n)), None)
     if not match and llm and llm.enabled:
         match = next((c for c in cands[:5] if _maybe_same(ev, c) and llm.same_event(_desc(ev), _desc(c))), None)
     if match:

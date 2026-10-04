@@ -300,11 +300,25 @@ def valid_venue(v: str) -> bool:
     return v.split()[0] in _VENUE_WORDS or n.startswith("trung tam") or bool(_VENUE_OK.search(v))
 
 
+# Nơi được nhắc như LỊCH SỬ (nơi đầu tiên tổ chức, khởi nguồn...) không phải nơi diễn ra đợt năm nay
+_HIST_BEFORE = re.compile(r"đầu tiên|lần đầu|khởi nguồn|bắt nguồn|nguồn gốc|xuất phát|cái nôi|ra đời|hình thành|"
+                          r"trước đây|ngày xưa|từ xưa|thuở|quê hương|vốn (?:là|được)|sinh ra", re.I)
+_HIST_AFTER = re.compile(r"^[^.\n]{0,25}(?:nơi|vùng đất|quê hương|địa phương|mảnh đất)[^.\n]{0,25}"
+                         r"(?:đầu tiên|lần đầu|khởi nguồn|bắt nguồn|cái nôi|ra đời|hình thành)", re.I)
+
+
+def _historical(text: str, start: int, end: int) -> bool:
+    before = re.split(r"[,.;:\n]", text[max(0, start - 70):start])[-1]  # chỉ xét trong cùng mệnh đề với địa danh
+    return bool(_HIST_BEFORE.search(before) or _HIST_AFTER.match(text[end:end + 70]))
+
+
 def find_venue(text: str) -> str:
     m = re.search(r"địa điểm\s*[:：-]\s*([^\n.;]{3,100})", text, re.I)
     if m and valid_venue(m.group(1)):
         return m.group(1).strip(" ,:")[:100]
     for m in re.finditer(r"\btại\s+([^,.;\n()]{3,100})", text):
+        if _historical(text, m.start(), m.end()):
+            continue
         toks = m.group(1).split()
         if not toks or not toks[0][0].isupper():
             continue
@@ -323,6 +337,8 @@ def find_venue(text: str) -> str:
 
 def find_ward(text: str) -> str:
     for m in re.finditer(r"\b(phường|xã|thị trấn|đặc khu|Phường|Xã)\s+([^\s,.;()]+(?:\s+[^\s,.;()]+){0,2})", text):
+        if _historical(text, m.start(), m.end()):
+            continue
         words = m.group(2).split()
         keep = []
         for w in words:
@@ -348,7 +364,7 @@ _P1 = (r"Đại\s+nhạc\s+hội|Hội\s+đua|Hội\s+xuân|Hội\s+hoa|Liên\s+
 _RX0 = re.compile(rf"(?<!\w)(?:{_P0})(?!\w)", re.I)
 _RX1 = re.compile(rf"(?<!\w)(?:{_P1})(?!\w)", re.I)
 _STOP1 = set("""đã sẽ đang sắp tại ở trong với để nhằm từ vào lúc sau trước có được bị là đón hoặc của cùng như khi nơi
-bởi do theo gồm cho về trên dưới đến tới qua giữa vẫn còn thuộc nhưng mà thì rằng vừa""".split())
+bởi do theo gồm cho về trên dưới đến tới qua giữa vẫn còn thuộc nhưng mà thì rằng vừa khiến gây giúp đem""".split())
 # cụm từ chỉ hành động/mô tả (so khớp theo cụm, KHÔNG tách từng âm tiết để không cắt nhầm tên như "Thành Hoàng", "Mùa Đông")
 _STOP2 = {("khai", "mạc"), ("bế", "mạc"), ("diễn", "ra"), ("thu", "hút"), ("quy", "tụ"), ("hứa", "hẹn"),
           ("chính", "thức"), ("hấp", "dẫn"), ("sôi", "động"), ("rộn", "ràng"), ("nhộn", "nhịp"), ("dự", "kiến"),
@@ -476,7 +492,7 @@ _T2 = ["giai chay", "marathon", "trien lam", "dem nhac", "concert", "liveshow", 
 _TAIL_STOP = {"tai", "o", "trong", "dien", "se", "sap", "khai", "mac", "be", "don", "voi", "de", "nham", "tu", "vao",
               "luc", "va", "cua", "cho", "dang", "da", "duoc", "co", "la", "gom", "hang", "gan", "hon", "khoang",
               "ngay", "thang", "lon", "nhat", "hoanh", "chuan", "quy", "tung", "bung", "ron", "nhon", "tuy", "nhu",
-              "mang", "hap", "ket", "dau", "chinh", "bat", "so", "toi", "den", "sang", "tiep"}
+              "mang", "hap", "ket", "dau", "chinh", "bat", "so", "toi", "den", "sang", "tiep", "khien", "gay", "giup"}
 _DASH = {"-", "–", "—", "|"}
 _PUNCT = "\"'“”‘’()[]{} ,.;:!?-–—"
 
