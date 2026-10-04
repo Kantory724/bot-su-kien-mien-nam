@@ -1,6 +1,8 @@
 # Danh sách nguồn thu thập. Thêm/bớt nguồn chỉ cần sửa file này (không cần sửa mã).
 # type: rss          -> RSS/Atom
-# type: google_news  -> tìm kiếm Google News theo từng tỉnh (gom tin từ báo địa phương: Báo Cần Thơ, Báo Đồng Nai, SGGP...)
+# type: bing_news   -> tìm kiếm Bing News RSS theo từng tỉnh x từng nhóm từ khoá. Link trong feed có sẵn URL bài gốc,
+#                      không cần giải mã => chạy tốt trên GitHub Actions (khác Google News bị chặn 429 trên IP datacenter).
+# type: google_news  -> tìm kiếm Google News theo từng tỉnh (link phải giải mã, hay bị chặn trên GitHub Actions -> đang TẮT)
 # type: html         -> trang chuyên mục không có RSS (cần CSS selector) - dùng cho cổng UBND/Sở VH-TT-DL, trang bán vé
 # enabled: false     -> tạm tắt.
 #
@@ -16,11 +18,36 @@ sources:
   - {id: thanhnien-vanhoa,  name: "Thanh Niên - Văn hóa", type: rss, url: "https://thanhnien.vn/rss/van-hoa.rss"}
   - {id: dantri-dulich,     name: "Dân Trí - Du lịch",    type: rss, url: "https://dantri.com.vn/rss/du-lich.rss"}
   - {id: dantri-giaitri,    name: "Dân Trí - Giải trí",   type: rss, url: "https://dantri.com.vn/rss/giai-tri.rss"}
+  - {id: vnexpress-thoisu,  name: "VnExpress - Thời sự",  type: rss, url: "https://vnexpress.net/rss/thoi-su.rss"}
+  - {id: tuoitre-thoisu,    name: "Tuổi Trẻ - Thời sự",   type: rss, url: "https://tuoitre.vn/rss/thoi-su.rss"}
+  - {id: laodong-vanhoa,    name: "Lao Động - Văn hóa",   type: rss, url: "https://laodong.vn/rss/van-hoa.rss"}
+  - {id: laodong-dulich,    name: "Lao Động - Du lịch",   type: rss, url: "https://laodong.vn/rss/du-lich.rss"}
 
-  # ---- Báo địa phương + tổng hợp, tìm theo từng tỉnh (Google News RSS) ----
+  # ---- Báo địa phương + tổng hợp, tìm theo từng tỉnh (Bing News RSS) - NGUỒN TÌM KIẾM CHÍNH ----
+  # topics là DANH SÁCH nhóm từ khoá; mỗi (tỉnh x nhóm) là một truy vấn ngắn (Bing giới hạn độ dài truy vấn).
+  # 8 tỉnh x 3 nhóm = 24 truy vấn/lượt. Muốn nhẹ hơn: bớt một nhóm trong topics.
+  - id: bing
+    name: Bing News
+    type: bing_news
+    topics:
+      - 'lễ hội OR "Ok Om Bok" OR "Vía Bà" OR "đua bò" OR "đua ghe" OR "cúng đình"'
+      - '"đại nhạc hội" OR "pháo hoa" OR countdown OR concert OR marathon OR "ca nhạc"'
+      - '"hội chợ" OR "triển lãm" OR "khai mạc" OR "lễ kỷ niệm" OR "nghỉ lễ"'
+    provinces:
+      hcm:      '"TP.HCM" OR "Sài Gòn" OR "Vũng Tàu" OR "Bình Dương"'
+      dongnai:  '"Đồng Nai" OR "Biên Hòa" OR "Bình Phước"'
+      tayninh:  '"Tây Ninh" OR "Long An"'
+      angiang:  '"An Giang" OR "Phú Quốc" OR "Châu Đốc" OR "Kiên Giang"'
+      dongthap: '"Đồng Tháp" OR "Tiền Giang" OR "Mỹ Tho"'
+      vinhlong: '"Vĩnh Long" OR "Bến Tre" OR "Trà Vinh"'
+      cantho:   '"Cần Thơ" OR "Sóc Trăng" OR "Hậu Giang"'
+      camau:    '"Cà Mau" OR "Bạc Liêu"'
+
+  # ---- Google News (DỰ PHÒNG, đang tắt vì bị Google chặn giải mã trên GitHub Actions). Bật lại: enabled: true ----
   - id: gnews
     name: Google News
     type: google_news
+    enabled: false
     window: 14d
     topics: '(lễ hội OR "đại nhạc hội" OR "pháo hoa" OR "khai mạc" OR "hội chợ" OR "triển lãm" OR countdown OR marathon OR "ca nhạc" OR "lễ kỷ niệm" OR "đua bò" OR "đua ghe" OR "Ok Om Bok" OR "Vía Bà")'
     provinces:
