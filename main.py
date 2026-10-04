@@ -31,7 +31,8 @@ def main(argv=None) -> int:
     sub.add_parser("get-chat-id", help="liệt kê chat id của những người đã nhắn cho bot")
     sub.add_parser("check-sources", help="kiểm tra từng nguồn tin còn hoạt động không")
     sub.add_parser("collect", help="thu thập tin + cảnh báo sự kiện lớn")
-    sub.add_parser("enrich", help="tìm lại bài báo (ưu tiên báo địa phương) để bổ sung thông tin cho sự kiện còn thiếu")
+    u = sub.add_parser("add-url", help="thêm tay một bài báo (link thường hoặc Google News) vào danh sách sự kiện")
+    u.add_argument("url")
     sub.add_parser("dedupe", help="gộp các sự kiện trùng đã lưu trong DB")
     d = sub.add_parser("digest", help="gửi bản tin 7 ngày tới")
     d.add_argument("--force", action="store_true", help="gửi lại dù hôm nay đã gửi")
@@ -70,6 +71,28 @@ def main(argv=None) -> int:
         print(f"\nTổng: {bad} nguồn lỗi")
         return 1 if bad else 0
 
+    if a.cmd == "add-url":
+        from datetime import timedelta
+        from bot.collector import fetch_article_text, item_from_url
+        from bot.pipeline import ingest
+        db, llm = DB(), LLM()
+        try:
+            item = item_from_url(a.url)
+            body = fetch_article_text(item)
+            print(f"Tít: {item.title}\nĐọc được {len(body)} ký tự nội dung")
+            db.conn.execute("DELETE FROM articles WHERE url=?", (item.link,))  # cho phép xử lý lại bài từng bị loại
+            today = config.today()
+            status = ingest(db, item, body, llm, today)
+            db.add_article(item.link, item.source_id, item.title, status)
+            db.conn.commit()
+            print(f"Kết quả: {status}  (new/merged/dup = đã có trong DB; out_of_scope = không thuộc 8 tỉnh; "
+                  f"not_event/past = bị loại)")
+            for e in db.search(item.title.split(" lần")[0][:30], today - timedelta(days=3))[:3]:
+                print(f" -> {e.start_date}~{e.end_date} | {e.province} | {e.venue or '(chưa rõ địa điểm)'} | {e.name}")
+        finally:
+            db.close()
+        return 0
+
     tg = Telegram(dry_run=a.dry_run or (a.cmd == "export" and not a.send))
     if a.cmd == "get-chat-id":
         seen = {}
@@ -90,9 +113,6 @@ def main(argv=None) -> int:
     try:
         if a.cmd == "collect":
             run_collect(db, tg, llm)
-        elif a.cmd == "enrich":
-            from bot.enrich import enrich_events
-            print(f"Đã thử bổ sung {enrich_events(db, llm, config.today(), force=True, limit=20)} sự kiện")
         elif a.cmd == "dedupe":
             print(f"Đã gộp {dedupe_existing(db, llm)} sự kiện trùng")
         elif a.cmd == "digest":
