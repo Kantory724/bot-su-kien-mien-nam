@@ -108,7 +108,7 @@ sources:
       - "https://baotayninh.vn/"
       - "https://baolongan.vn/"
   - id: angiang-local
-    name: "Báo An Giang / Kiên Giang"
+    name: "Báo An Giang"
     type: auto
     province_hint: angiang
     local: true
