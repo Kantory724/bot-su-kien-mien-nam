@@ -30,7 +30,8 @@ NEG_KW = ["tai nan", "tu vong", "khoi to", "bat giu", "lua dao", "chung khoan", 
           "dai hoi cong doan", "tap huan", "hoi thi tay nghe", "tu van vien", "phap luat", "chuyen doi so",
           "hoi dong nhan dan", "bau cu", "huan luyen", "dien tap", "cong an", "quan su", "sinh hoat chuyen de",
           "hoc tap", "bao cao vien", "tuyen truyen", "tuyen sinh", "thi tuyen", "ban giao", "ky ket",
-          "khoi cong", "cong bo quyet dinh", "trao quyet dinh", "kiem tra", "giam sat"]
+          "khoi cong", "nguon luc", "phat trien kinh te", "nghi quyet", "chuong trinh hanh dong", "cong nghiep van hoa",
+          "doi moi sang tao", "chuyen doi", "khoa hoc cong nghe", "cong bo quyet dinh", "trao quyet dinh", "kiem tra", "giam sat"]
 
 
 def strong_hits(text: str) -> list[str]:
@@ -337,43 +338,57 @@ _P1 = (r"Đại\s+nhạc\s+hội|Hội\s+đua|Hội\s+xuân|Hội\s+hoa|Liên\s+
        r"Marathon|Giải\s+chạy|Triển\s+lãm|Chợ\s+hoa|Đường\s+hoa|Đêm\s+hội|Lễ\s+rước|Lễ\s+đón")
 _RX0 = re.compile(rf"(?<!\w)(?:{_P0})(?!\w)", re.I)
 _RX1 = re.compile(rf"(?<!\w)(?:{_P1})(?!\w)", re.I)
-_NAME_STOP = set("""đã sẽ đang sắp tại ở trong khuôn khổ diễn ra thu hút khai mạc bế mạc với để nhằm từ vào lúc ngày đêm
-sau trước quy tụ hứa hẹn có được bị là đón chào mừng chính thức hấp dẫn sôi động rộn ràng nhộn nhịp hàng hơn gần bắt đầu
-dự kiến cùng như khi nơi bởi do theo tổ chức mở cửa kéo dài kỳ vẫn còn giữa lên xuống đến tới qua cho về trên dưới và hoặc
-của gồm bao hoàn tất khẩn trương tất bật sẵn sàng chuẩn bị công tác vừa mới tiếp tục nhiều đông đảo thành công hút
-xem thưởng thức trải nghiệm đổ về""".split())
+_STOP1 = set("""đã sẽ đang sắp tại ở trong với để nhằm từ vào lúc sau trước có được bị là đón hoặc của cùng như khi nơi
+bởi do theo gồm cho về trên dưới đến tới qua giữa vẫn còn thuộc nhưng mà thì rằng vừa""".split())
+# cụm từ chỉ hành động/mô tả (so khớp theo cụm, KHÔNG tách từng âm tiết để không cắt nhầm tên như "Thành Hoàng", "Mùa Đông")
+_STOP2 = {("khai", "mạc"), ("bế", "mạc"), ("diễn", "ra"), ("thu", "hút"), ("quy", "tụ"), ("hứa", "hẹn"),
+          ("chính", "thức"), ("hấp", "dẫn"), ("sôi", "động"), ("rộn", "ràng"), ("nhộn", "nhịp"), ("dự", "kiến"),
+          ("tổ", "chức"), ("khuôn", "khổ"), ("chào", "mừng"), ("hoàn", "tất"), ("khẩn", "trương"), ("tất", "bật"),
+          ("sẵn", "sàng"), ("chuẩn", "bị"), ("công", "tác"), ("thành", "công"), ("trải", "nghiệm"),
+          ("thưởng", "thức"), ("đổ", "về"), ("bắt", "đầu"), ("kéo", "dài"), ("mở", "cửa"), ("sắp", "diễn"),
+          ("hàng", "nghìn"), ("hàng", "chục"), ("hàng", "ngàn"), ("hàng", "vạn"), ("hơn", "nghìn")}
+_ORD = {"nhất", "nhì", "hai", "ba", "tư", "bốn", "năm", "sáu", "bảy", "tám", "chín", "mười"}
 _ROMAN = re.compile(r"^(?:[IVXLC]+|\d{1,3})$", re.I)
+_LISTHEAD = "Thể|Du|Văn|Ẩm|Thương|Nghệ"  # "Văn hóa, Thể thao và Du lịch" là MỘT tên, không cắt ở dấu phẩy/gạch/'và'
 
 
 def _name_from(text: str, start: int) -> str:
-    """Lấy cụm tên bắt đầu từ vị trí `start`: dừng ở dấu câu hoặc từ chỉ hành động (khai mạc, tại, thu hút...)."""
-    seg = re.split(r"[,;:()|–—\n]|\s-\s|\.\s", text[start:start + 160], maxsplit=1)[0]
+    """Lấy cụm tên bắt đầu từ vị trí `start`: dừng ở dấu câu hoặc cụm chỉ hành động (khai mạc, tại, thu hút...)."""
+    seg = re.split(rf"[;:()|\n]|\.\s|,\s+(?!(?:{_LISTHEAD})\b)|\s[-–—]\s+(?!(?:{_LISTHEAD})\b)",
+                   text[start:start + 170], maxsplit=1)[0]
     seg = re.sub("[“”\"‘’']", "", seg)
     toks = seg.split()
     out, i = [], 0
-    while i < len(toks) and len(out) < 13:
+    while i < len(toks) and len(out) < 14:
         low = toks[i].lower().strip(".,")
-        if i > 0 and low == "lần" and i + 2 < len(toks) and toks[i + 1].lower() == "thứ" and _ROMAN.match(toks[i + 2]):
-            out += toks[i:i + 3]
-            i += 3
-            continue
-        if i > 0 and low == "năm" and i + 1 < len(toks) and re.fullmatch(r"20\d\d", toks[i + 1]):
-            out += toks[i:i + 2]
-            i += 2
-            continue
-        if i > 0 and low in _NAME_STOP:
-            break
+        nxt = toks[i + 1].lower() if i + 1 < len(toks) else ""
+        if i > 0:
+            if low == "lần" and nxt == "thứ" and i + 2 < len(toks) and (
+                    _ROMAN.match(toks[i + 2]) or toks[i + 2].lower().strip(".,") in _ORD):
+                out += toks[i:i + 3]
+                i += 3
+                continue
+            if low == "năm" and re.fullmatch(r"20\d\d", toks[i + 1].strip(".,") if i + 1 < len(toks) else ""):
+                out += toks[i:i + 2]
+                i += 2
+                continue
+            if low == "và" and i + 1 < len(toks) and re.match(rf"(?:{_LISTHEAD})", toks[i + 1]):
+                out.append(toks[i])
+                i += 1
+                continue
+            if low in _STOP1 or (low, nxt) in _STOP2 or (low == "ngày" and nxt[:1].isdigit()) or low == "và":
+                break
         out.append(toks[i])
         i += 1
-    while out and out[-1].lower() in _NAME_STOP | {"lần", "thứ", "năm"}:
+    while out and (out[-1].lower().strip(".,") in _STOP1 | {"lần", "thứ", "năm", "và", "-", "–", "—"}):
         out.pop()
-    return " ".join(out)
+    return " ".join(out).strip(" ,;-–—")
 
 
 def _cap_after_kw(n: str, kw: str) -> bool:
     """Từ ngay sau loại hình (Lễ hội/Hội chợ...) phải viết hoa hoặc là số: 'Lễ hội Sen...' ok, 'đại nhạc hội lớn nhất' không."""
     toks = n.split()[len(kw.split()):]
-    return bool(toks) and (toks[0][:1].isupper() or toks[0][:1].isdigit())
+    return any(t[:1].isupper() or t[:1].isdigit() for t in toks)
 
 
 def _valid_event_name(n: str) -> bool:
@@ -532,7 +547,7 @@ def _event_name_old(title: str, body: str = "") -> str:
             name = _name_from_old(sent)
             if name:
                 break
-    return name or canonical_name(clean_title(title))
+    return name if any(t[:1].isupper() for t in name.split()[1:]) else ""
 
 
 def make_summary(text: str) -> str:
@@ -552,8 +567,18 @@ def is_prep_title(title: str) -> bool:
     return any(f" {k} " in n for k in PREP_KW)
 
 
+_STAMP = re.compile(r"\b\d{1,2}[:h]\d{2}\s*(?:,|-|–)?\s*(?:ngày\s*)?\d{1,2}/\d{1,2}/\d{4}\b"
+                    r"|\b\d{1,2}/\d{1,2}/\d{4}\s*(?:,|-|–)?\s*\d{1,2}[:h]\d{2}\b", re.I)
+
+
+def strip_stamps(text: str) -> str:
+    """Bỏ dấu thời gian đăng bài ('05:52, 04/10/2026') để không bị nhận nhầm là ngày/giờ của sự kiện."""
+    return _STAMP.sub(" ", text or "")
+
+
 def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
     """Trích xuất bằng luật. `ref` = ngày làm mốc suy luận năm (thường là ngày đăng bài)."""
+    title, body = strip_stamps(title), strip_stamps(body)
     r = pub or ref
     full = f"{title}\n{body}"
     dates = ([] if is_prep_title(title) else find_dates(title, r)) or find_dates(body, r)
@@ -564,7 +589,8 @@ def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
     elif not venue:
         venue = ward
     return {
-        "name": event_name(title, body),
+        "name": event_name(title, body) or canonical_name(clean_title(title)),
+        "name_ok": bool(event_name(title, body)),  # False = chưa rút ra được TÊN lễ hội/sự kiện cụ thể (tin chung chung)
         "venue": venue,
         "start_date": chosen[0] if chosen else None,
         "end_date": chosen[1] if chosen else None,

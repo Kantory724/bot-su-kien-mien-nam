@@ -11,7 +11,7 @@ from .db import DB
 from .extractor import (canonical_name, choose_date, event_name, event_keyword_hits, extract_rules, find_dates,
                         has_negative, is_cultural_event, is_prep_title, valid_venue)
 from .formatter import format_alert, format_digest
-from .geo import PROVINCES, detect_province, normalize, score_provinces, title_elsewhere
+from .geo import PROVINCES, detect_province, normalize, other_area_score, score_provinces, title_elsewhere
 from .llm import LLM
 from .models import Event
 from .telegram import Telegram
@@ -99,7 +99,7 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
         if is_prep_title(e.name) and e.start_date and (e.end_date or e.start_date) == e.start_date:
             e.start_date = e.end_date = None
             changed = True
-        cn = canonical_name(event_name(e.name, e.summary))  # tên cũ là tít bài -> rút ra tên lễ hội/sự kiện
+        cn = canonical_name(event_name(e.name, e.summary) or e.name)  # tên cũ là tít bài -> rút ra tên lễ hội/sự kiện
         if cn != e.name:
             e.name, changed = cn, True
         if changed:
@@ -125,12 +125,22 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
 
 
 def prune_noise(db: DB) -> list[str]:
-    """Xoá khỏi DB các 'sự kiện' không phải lễ hội/văn hoá (tin hành chính lọt vào trước đây). Trả về danh sách tên đã xoá."""
+    """Xoá khỏi DB các 'sự kiện' không phải lễ hội/văn hoá cụ thể: tin hành chính, tin chung chung không có tên lễ hội,
+    hoặc sự kiện ở ngoài 8 tỉnh (vd Hà Nội). Trả về danh sách đã xoá."""
     gone = []
     for e in db.all_events():
+        head = f"{e.name} {e.venue}"
+        own = score_provinces(head, e.summary).get(e.province, 0)
+        why = None
         if not is_cultural_event(e.name, e.summary, e.crowd, e.fireworks, e.big_concert):
+            why = "không phải sự kiện văn hoá"
+        elif not event_name(e.name, e.summary):
+            why = "không có tên lễ hội cụ thể"
+        elif other_area_score(head, e.summary) > own:
+            why = "ngoài 8 tỉnh"
+        if why:
             db.delete_event(e.id)
-            gone.append(f"{e.start_date} | {e.name[:80]}")
+            gone.append(f"{e.start_date} | {e.name[:70]} ({why})")
     return gone
 
 
@@ -142,6 +152,11 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
     text_all = f"{item.summary} {body}"
     # chỉ xét tít + phần đầu bài: nơi diễn ra sự kiện luôn nằm ở đó, tránh bài Hà Nội có nhắc TP.HCM ở cuối bài
     lead = text_all.strip()[:1500]
+    # bài nhắc tới nơi NGOÀI 8 tỉnh nhiều hơn 8 tỉnh (vd tin Hà Nội đăng trên báo Vĩnh Long) -> không phải sự kiện của vùng này
+    own = score_provinces(item.title, lead)
+    oa = other_area_score(item.title, lead)
+    if oa and oa > max(own.values(), default=0):
+        return "out_of_scope"
     strong = detect_province(item.title, lead)
     hint = item.province_hint if item.province_hint in PROVINCES else None
     # gợi ý của nguồn chỉ được tin khi tít/đoạn mở đầu có nhắc tới tỉnh đó
@@ -168,6 +183,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
                     info[k] = ai[k]
             info["fireworks"] = info["fireworks"] or ai["fireworks"]
             info["big_concert"] = info["big_concert"] or ai["big_concert"]
+    if not ai_ok and not info.get("name_ok"):
+        return "not_event"  # tin chung chung về lễ hội, không có TÊN một lễ hội/sự kiện cụ thể
     if not ai_ok and not is_cultural_event(item.title, f"{item.summary} {body}".strip(), info["crowd"],
                                            info["fireworks"], info["big_concert"]):
         return "not_event"  # tin hành chính / hội nghị / tập huấn... không phải lễ hội, văn hoá, sự kiện đông người

@@ -42,6 +42,9 @@ OTHER_AREAS = [
     "dien bien", "tuyen quang", "thai nguyen", "phu tho", "bac ninh", "hung yen", "quang ngai", "kon tum",
     "dong hoi", "vinh phuc", "hai duong", "nam dinh", "thai binh", "ha giang", "yen bai", "bac giang",
     "trung quoc", "campuchia", "thai lan", "nhat ban", "han quoc",
+    # địa danh/địa điểm nổi tiếng ở Hà Nội & nơi khác (bài viết về sự kiện ở đó dù tít không ghi tên thành phố)
+    "thang long", "hoang thanh", "hoan kiem", "ba dinh", "my dinh", "trung tam hoi nghi quoc gia", "tay ho",
+    "cau giay", "hai ba trung", "long bien", "ha dong", "buon ma thuot", "pleiku", "co do hue",
 ]
 
 # Báo/cổng thông tin địa phương (kể cả tỉnh cũ đã sáp nhập) - dùng để ưu tiên khi tìm lại bài về một sự kiện.
@@ -119,3 +122,9 @@ def resolve_province(text: str) -> str | None:
         if any(p.search(n) for p in pats):
             return key
     return None
+
+
+def other_area_score(title: str, body: str = "") -> int:
+    """Số lần nhắc tới nơi NGOÀI 8 tỉnh (tít tính x3), cùng thang điểm với score_provinces."""
+    nt, nb = normalize(title), normalize(body)
+    return sum(3 * len(p.findall(nt)) + len(p.findall(nb)) for p in _OTHER_PATS)
