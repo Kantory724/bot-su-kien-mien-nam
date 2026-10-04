@@ -103,13 +103,22 @@ def _fetch_html(src: dict) -> list[Item]:
     return items
 
 
+_GN_BROKEN = False
+
+
 def _resolve_gnews(url: str) -> str | None:
+    global _GN_BROKEN
+    if _GN_BROKEN:
+        return None
     try:  # tuỳ chọn: pip install googlenewsdecoder
         from googlenewsdecoder import gnewsdecoder
         res = gnewsdecoder(url, interval=1)
         if res.get("status"):
             return res["decoded_url"]
         log.warning("Giải mã Google News thất bại: %s", str(res.get("message"))[:120])
+    except ImportError as e:  # thiếu/hỏng thư viện: báo 1 lần rồi bỏ qua cả phiên, khỏi spam log
+        _GN_BROKEN = True
+        log.error("Không import được googlenewsdecoder (cài lại thư viện): %s", str(e)[:150])
     except Exception as e:  # noqa
         log.warning("Không giải mã được link Google News: %s", type(e).__name__)
     return None
