@@ -9,7 +9,7 @@ on:
         description: "Lệnh muốn chạy thủ công"
         type: choice
         default: tick
-        options: [tick, collect, enrich, "digest --force", check-sources, test-send, get-chat-id]
+        options: [tick, collect, enrich, prune-noise, "digest --force", check-sources, test-send, get-chat-id]
 
 concurrency:
   group: mn-events-db
