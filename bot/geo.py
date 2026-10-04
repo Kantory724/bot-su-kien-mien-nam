@@ -44,6 +44,19 @@ OTHER_AREAS = [
     "trung quoc", "campuchia", "thai lan", "nhat ban", "han quoc",
 ]
 
+# Báo/cổng thông tin địa phương (kể cả tỉnh cũ đã sáp nhập) - dùng để ưu tiên khi tìm lại bài về một sự kiện.
+# Tên miền sai chỉ khiến truy vấn không ra kết quả và bot tự chuyển sang tìm không giới hạn nguồn.
+LOCAL_SITES: dict[str, list[str]] = {
+    "hcm": ["sggp.org.vn", "baobinhduong.vn", "baobariavungtau.com.vn", "hcmcpv.org.vn"],
+    "dongnai": ["baodongnai.com.vn", "dnrtv.vn", "baobinhphuoc.com.vn"],
+    "tayninh": ["baotayninh.vn", "baolongan.vn"],
+    "angiang": ["baoangiang.com.vn", "angiang.gov.vn", "baokiengiang.vn"],
+    "dongthap": ["baodongthap.vn", "dongthap.gov.vn", "baoapbac.vn"],
+    "vinhlong": ["baovinhlong.com.vn", "baobentre.vn", "baotravinh.vn"],
+    "cantho": ["baocantho.com.vn", "cantho.gov.vn", "baosoctrang.org.vn", "baohaugiang.com.vn"],
+    "camau": ["baocamau.vn", "baobaclieu.vn"],
+}
+
 # Tên người dùng gõ cho lệnh /tinh
 EXTRA_NAMES = {"hcm": ["hcm", "sg", "tp hcm", "sai gon", "ho chi minh"], "tayninh": ["tn"], "cantho": ["ct"]}
 

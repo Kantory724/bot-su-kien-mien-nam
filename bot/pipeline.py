@@ -178,7 +178,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         db.conn.execute("DELETE FROM articles")
         db.conn.commit()
         db.set("fix_scope_v3", "1")
-    db.conn.execute("DELETE FROM articles WHERE status='no_body' AND seen_at < ?",
+    db.conn.execute("DELETE FROM articles WHERE status IN ('no_body','title_only') AND seen_at < ?",
                     ((config.now() - timedelta(hours=6)).isoformat(timespec="seconds"),))
     db.conn.commit()
     if db.get("fix_prep_v1") != "1":  # dọn một lần dữ liệu cũ bị nhận nhầm ngày chuẩn bị
@@ -221,14 +221,22 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
             db.add_article(it.link, it.source_id, it.title, "no_body")  # chưa đọc được bài và tít không nêu tỉnh
             continue
         status = ingest(db, it, body, llm, today, require_date=not hits)
-        db.add_article(it.link, it.source_id, it.title, status)
         if status == "new":
             stats["new"] += 1
         elif status == "merged":
             stats["merged"] += 1
+        if not body and it.is_gnews and status in ("new", "merged", "dup"):
+            status = "title_only"  # mới có tít: 6 giờ sau thử tải lại nội dung để bổ sung ngày/địa điểm
+        db.add_article(it.link, it.source_id, it.title, status)
     db.conn.commit()
     if llm:
         stats["llm"] = llm.calls
+
+    try:  # từ tên sự kiện đã lưu, tìm lại bài báo (ưu tiên báo địa phương) để bổ sung ngày/địa điểm
+        from .enrich import enrich_events
+        stats["enriched"] = enrich_events(db, llm, today)
+    except Exception as e:  # noqa
+        log.warning("Bước làm giàu lỗi: %s", _short(e))
 
     notify_source_failures(db, tg)
     if tg:

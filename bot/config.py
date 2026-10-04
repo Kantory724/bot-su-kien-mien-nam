@@ -93,5 +93,14 @@ def max_article_fetch() -> int:
     return env_int("MAX_ARTICLE_FETCH", 40)
 
 
+def enrich_max() -> int:
+    """Số sự kiện tối đa được tìm lại bài báo trong mỗi lượt thu thập."""
+    return env_int("ENRICH_MAX", 6)
+
+
+def enrich_budget_sec() -> int:
+    return env_int("ENRICH_BUDGET_SEC", 70)
+
+
 def llm_max_calls() -> int:
     return env_int("LLM_MAX_CALLS", 30)
