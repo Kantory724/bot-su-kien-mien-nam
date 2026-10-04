@@ -30,8 +30,8 @@ def format_event(e: Event, show_summary: bool = False) -> str:
     if e.start_time:
         lines.append(f"Giờ: {e.start_time}")
     scale = []
-    if e.crowd:
-        scale.append(f"~{fmt_num(e.crowd)} người")
+    if e.shown_crowd:
+        scale.append(f"~{fmt_num(e.shown_crowd)} người")
     if e.fireworks:
         scale.append("có bắn pháo hoa")
     if e.big_concert:
