@@ -36,7 +36,9 @@ jobs:
       - run: pip install requests feedparser beautifulsoup4 PyYAML openpyxl tzdata
 
       - name: Cài bộ giải mã link Google News
-        run: pip install googlenewsdecoder
+        run: |
+          pip install googlenewsdecoder "selectolax<1.0"
+          python -c "from googlenewsdecoder import gnewsdecoder; print('googlenewsdecoder OK')"
 
       - name: Chạy bot
         env:
