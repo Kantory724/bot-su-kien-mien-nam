@@ -1,5 +1,6 @@
 """Trích xuất thông tin sự kiện từ văn bản tiếng Việt bằng luật (regex). Có thể bổ trợ bằng LLM (bot/llm.py)."""
 import re
+import unicodedata
 from datetime import date, timedelta
 
 from .geo import PROVINCES, normalize
@@ -327,6 +328,86 @@ def find_ward(text: str) -> str:
     return ""
 
 
+
+# ---------- TÊN SỰ KIỆN (không phải tiêu đề bài báo) ----------
+# Hạng 0 = sự kiện "mẹ" (lễ hội, hội chợ...). Hạng 1 = sự kiện/hoạt động có thể nằm trong một sự kiện mẹ.
+_P0 = (r"Lễ\s+hội|Festival|Ngày\s+hội|Hội\s+chợ|Lễ\s+Vía|Vía\s+Bà|Ok\s+Om\s+Bok|Chol\s+Chnam\s+Thmay|"
+       r"Sen\s+Dolta|Lễ\s+Dolta|Lễ\s+cúng\s+Trăng|Lễ\s+Kỳ\s+Yên")
+_P1 = (r"Đại\s+nhạc\s+hội|Hội\s+đua|Hội\s+xuân|Hội\s+hoa|Liên\s+hoan|Tuần\s+lễ|Carnival|Countdown|"
+       r"Marathon|Giải\s+chạy|Triển\s+lãm|Chợ\s+hoa|Đường\s+hoa|Đêm\s+hội|Lễ\s+rước|Lễ\s+đón")
+_RX0 = re.compile(rf"(?<!\w)(?:{_P0})(?!\w)", re.I)
+_RX1 = re.compile(rf"(?<!\w)(?:{_P1})(?!\w)", re.I)
+_NAME_STOP = set("""đã sẽ đang sắp tại ở trong khuôn khổ diễn ra thu hút khai mạc bế mạc với để nhằm từ vào lúc ngày đêm
+sau trước quy tụ hứa hẹn có được bị là đón chào mừng chính thức hấp dẫn sôi động rộn ràng nhộn nhịp hàng hơn gần bắt đầu
+dự kiến cùng như khi nơi bởi do theo tổ chức mở cửa kéo dài kỳ vẫn còn giữa lên xuống đến tới qua cho về trên dưới và hoặc
+của gồm bao hoàn tất khẩn trương tất bật sẵn sàng chuẩn bị công tác vừa mới tiếp tục nhiều đông đảo thành công hút
+xem thưởng thức trải nghiệm đổ về""".split())
+_ROMAN = re.compile(r"^(?:[IVXLC]+|\d{1,3})$", re.I)
+
+
+def _name_from(text: str, start: int) -> str:
+    """Lấy cụm tên bắt đầu từ vị trí `start`: dừng ở dấu câu hoặc từ chỉ hành động (khai mạc, tại, thu hút...)."""
+    seg = re.split(r"[,;:()|–—\n]|\s-\s|\.\s", text[start:start + 160], maxsplit=1)[0]
+    seg = re.sub("[“”\"‘’']", "", seg)
+    toks = seg.split()
+    out, i = [], 0
+    while i < len(toks) and len(out) < 13:
+        low = toks[i].lower().strip(".,")
+        if i > 0 and low == "lần" and i + 2 < len(toks) and toks[i + 1].lower() == "thứ" and _ROMAN.match(toks[i + 2]):
+            out += toks[i:i + 3]
+            i += 3
+            continue
+        if i > 0 and low == "năm" and i + 1 < len(toks) and re.fullmatch(r"20\d\d", toks[i + 1]):
+            out += toks[i:i + 2]
+            i += 2
+            continue
+        if i > 0 and low in _NAME_STOP:
+            break
+        out.append(toks[i])
+        i += 1
+    while out and out[-1].lower() in _NAME_STOP | {"lần", "thứ", "năm"}:
+        out.pop()
+    return " ".join(out)
+
+
+def _cap_after_kw(n: str, kw: str) -> bool:
+    """Từ ngay sau loại hình (Lễ hội/Hội chợ...) phải viết hoa hoặc là số: 'Lễ hội Sen...' ok, 'đại nhạc hội lớn nhất' không."""
+    toks = n.split()[len(kw.split()):]
+    return bool(toks) and (toks[0][:1].isupper() or toks[0][:1].isdigit())
+
+
+def _valid_event_name(n: str) -> bool:
+    core = [t for t in n.split()
+            if not re.fullmatch(r"20\d\d|[IVXLC]+|\d+", t, re.I) and t.lower() not in ("lần", "thứ", "năm")]
+    return len(core) >= 2 and len(n) <= 120
+
+
+def _strip_prov_prefix(n: str) -> str:
+    m = re.match(r"^([^:]{2,20}):\s*(.{6,})$", n or "")
+    return m.group(2) if m and normalize(m.group(1)) in _PROV_NORM else n
+
+
+def event_name(title: str, body: str = "") -> str:
+    """Tên lễ hội/sự kiện (vd 'Lễ hội Ok Om Bok'), bỏ phần mô tả hoạt động như 'Khai mạc', 'Đêm nhạc', 'Pháo hoa'.
+    Nhiều hoạt động của cùng một lễ hội nhờ vậy cùng một tên -> được gộp thành 1 sự kiện. '' nếu không nhận ra."""
+    t = unicodedata.normalize("NFC", re.sub(r"\s+", " ", title or ""))
+    lead = unicodedata.normalize("NFC", re.sub(r"\s+", " ", body or ""))[:700]
+    # 1) bài nói hoạt động "trong khuôn khổ / thuộc / nằm trong <lễ hội mẹ>" -> lấy lễ hội mẹ
+    for src in (t, lead):
+        for m in _RX0.finditer(src):
+            if re.search(r"(?:khuôn khổ|nằm trong|thuộc|trong)\s+(?:của\s+)?$", src[max(0, m.start() - 25):m.start()], re.I):
+                n = _name_from(src, m.start())
+                if _valid_event_name(n) and _cap_after_kw(n, m.group(0)):
+                    return n
+    # 2) tít có lễ hội mẹ -> lấy; rồi đến hạng 1 trong tít; rồi lễ hội mẹ trong đoạn đầu bài
+    for rx, src in ((_RX0, t), (_RX1, t), (_RX0, lead)):
+        for m in rx.finditer(src):
+            n = _name_from(src, m.start())
+            if _valid_event_name(n) and _cap_after_kw(n, m.group(0)):
+                return n
+    return _strip_prov_prefix(_event_name_old(title, body))
+
+
 # ---------- Tên, tóm tắt ----------
 def clean_title(t: str) -> str:
     t = re.sub(r"\s+", " ", t or "").strip()
@@ -345,6 +426,113 @@ def canonical_name(name: str) -> str:
     """Bỏ cụm 'hoàn tất công tác chuẩn bị', 'sẵn sàng cho'... và đuôi ngày để còn lại tên sự kiện."""
     n = _NAME_SUFFIX.sub("", _NAME_PREFIX.sub("", (name or "").strip())).strip(" ,:-–")
     return (n[:1].upper() + n[1:]) if len(n) >= 8 else (name or "").strip()
+
+
+
+# ---------- Tên SỰ KIỆN / LỄ HỘI (không phải tít bài báo) ----------
+_T1 = ["le hoi", "festival", "dai nhac hoi", "nhac hoi", "hoi cho", "ngay hoi", "tuan le van hoa", "tuan le du lich",
+       "lien hoan", "carnival", "hoi dua", "ok om bok", "chol chnam thmay", "sen dolta", "le via", "via ba",
+       "hoi xuan", "hoi hoa", "cho hoa", "duong hoa", "countdown", "le roc"]
+_T2 = ["giai chay", "marathon", "trien lam", "dem nhac", "concert", "liveshow", "live show", "giao thua",
+       "le dang huong", "le cung", "cung dinh", "dai le"]
+_TAIL_STOP = {"tai", "o", "trong", "dien", "se", "sap", "khai", "mac", "be", "don", "voi", "de", "nham", "tu", "vao",
+              "luc", "va", "cua", "cho", "dang", "da", "duoc", "co", "la", "gom", "hang", "gan", "hon", "khoang",
+              "ngay", "thang", "lon", "nhat", "hoanh", "chuan", "quy", "tung", "bung", "ron", "nhon", "tuy", "nhu",
+              "mang", "hap", "ket", "thanh", "dau", "chinh", "bat", "so", "toi", "den", "sang", "tiep"}
+_DASH = {"-", "–", "—", "|"}
+_PUNCT = "\"'“”‘’()[]{} ,.;:!?-–—"
+
+
+def _extend(tokens: list[str], nt: list[str], i: int, L: int) -> list[str]:
+    out = tokens[i:i + L]
+    if tokens[i + L - 1][-1:] in ",;:!?":
+        return out
+    j, n_all = i + L, len(tokens)
+    while j < n_all and len(out) < 11:
+        t, n = tokens[j], nt[j]
+        if t in _DASH or t.startswith("("):
+            break
+        if t[0] in '“"':  # tên nằm trong ngoặc kép
+            seg = []
+            while j < n_all and len(seg) < 9:
+                seg.append(tokens[j])
+                j += 1
+                if seg[-1][-1:] in '”"':
+                    break
+            out += seg
+            break
+        if n == "tinh" or n == "tp" or (n == "thanh" and nt[j + 1:j + 2] == ["pho"]):
+            k = j + (2 if n == "thanh" else 1)
+            hit = next((m for m in (3, 2, 1) if " ".join(nt[k:k + m]) in _PROV_NORM), 0)
+            if hit:  # bỏ cụm "tỉnh An Giang", "TP. Cần Thơ" khỏi tên
+                j = k + hit
+                continue
+            break
+        if n == "lan" and nt[j + 1:j + 2] == ["thu"] and j + 2 < n_all:
+            out += tokens[j:j + 3]
+            j += 3
+            continue
+        if n == "nam" and j + 1 < n_all and re.fullmatch(r"\d{4}", nt[j + 1]):
+            out += tokens[j:j + 2]
+            break
+        if n in _TAIL_STOP or (n == "thu" and nt[j + 1:j + 2] == ["hut"]):
+            break
+        if any(c.isdigit() for c in t) and not re.fullmatch(r"\d{4}", n):
+            break
+        out.append(t)
+        if t[-1:] in ",;:!?.":
+            break
+        j += 1
+    return out
+
+
+def _finalize(parts: list[str]) -> str:
+    s = re.sub(r"\s+", " ", " ".join(parts)).strip(_PUNCT)
+    return (s[:1].upper() + s[1:]) if s else ""
+
+
+def _name_from_old(text: str) -> str:
+    tokens = (text or "").split()
+    if not tokens:
+        return ""
+    nt = [normalize(t) for t in tokens]
+    cands = []
+    for prio, phrases in enumerate((_T1, _T2)):
+        for ph in phrases:
+            pw = ph.split()
+            for i in range(len(nt) - len(pw) + 1):
+                if nt[i:i + len(pw)] == pw:
+                    cands.append((prio, i, len(pw)))
+    for prio, i, L in sorted(cands):
+        out = _extend(tokens, nt, i, L)
+        if len(out) > L and len(" ".join(out)) >= 8:
+            return _finalize(out)
+        # tên đứng TRƯỚC loại hình: "Mùa Hè Xanh - đại nhạc hội lớn nhất", "Mùa Hè Xanh: đại nhạc hội"
+        k = i - 1
+        if k >= 0 and (tokens[k] in _DASH or tokens[k].endswith(":")):
+            back = [tokens[k].rstrip(":")] if tokens[k].endswith(":") and tokens[k] not in _DASH else []
+            k -= 0 if back else 1
+            while k >= 0 and len(back) < 5 and tokens[k] not in _DASH:
+                back.insert(0, tokens[k])
+                if tokens[k].endswith(":") and len(back) > 1:
+                    back.pop(0)
+                    break
+                k -= 1
+            name_part = " ".join(back).strip(_PUNCT)
+            if len(back) >= 2 and normalize(name_part) not in _PROV_NORM:
+                return _finalize(tokens[i:i + L] + back)
+    return ""
+
+
+def _event_name_old(title: str, body: str = "") -> str:
+    """Tên của lễ hội/sự kiện (vd 'Lễ hội Sen Đồng Tháp lần thứ 3'), không phải cả tít bài. Thử tít trước, rồi đoạn mở đầu bài."""
+    name = _name_from_old(clean_title(title))
+    if not name:
+        for sent in re.split(r"(?<=[.!?])\s+|\n+", (body or "")[:600])[:4]:
+            name = _name_from_old(sent)
+            if name:
+                break
+    return name or canonical_name(clean_title(title))
 
 
 def make_summary(text: str) -> str:
@@ -376,7 +564,7 @@ def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
     elif not venue:
         venue = ward
     return {
-        "name": canonical_name(clean_title(title)),
+        "name": event_name(title, body),
         "venue": venue,
         "start_date": chosen[0] if chosen else None,
         "end_date": chosen[1] if chosen else None,

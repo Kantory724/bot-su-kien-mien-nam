@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
-from .extractor import (canonical_name, choose_date, event_keyword_hits, extract_rules, find_dates,
+from .extractor import (canonical_name, choose_date, event_name, event_keyword_hits, extract_rules, find_dates,
                         has_negative, is_cultural_event, is_prep_title, valid_venue)
 from .formatter import format_alert, format_digest
 from .geo import PROVINCES, detect_province, normalize, score_provinces, title_elsewhere
@@ -65,10 +65,16 @@ def merge_into(old: Event, new: Event) -> bool:
         old.start_date, old.end_date, changed = new.start_date, new.end_date, True
     elif new.end_date and old.end_date and new.end_date > old.end_date and new.start_date == old.start_date:
         old.end_date, changed = new.end_date, True
-    elif new.start_date and old.start_date and new.start_date != old.start_date:
-        span = lambda e: ((e.end_date or e.start_date) - e.start_date).days
-        if span(new) > span(old):  # lấy mốc nhiều ngày (đợt lễ) thay cho mốc 1 ngày (hạn chót chuẩn bị)
-            old.start_date, old.end_date, changed = new.start_date, new.end_date, True
+    elif new.start_date and old.start_date and (new.start_date != old.start_date or new.last_date != old.last_date):
+        gap = (max(old.start_date, new.start_date) - min(old.last_date, new.last_date)).days
+        if gap <= 1:  # hai khoảng ngày giao/sát nhau = các hoạt động của CÙNG một lễ hội -> lấy cả đợt
+            s0, e0 = min(old.start_date, new.start_date), max(old.last_date, new.last_date)
+            if (s0, e0) != (old.start_date, old.last_date):
+                old.start_date, old.end_date, changed = s0, e0, True
+        else:
+            span = lambda e: ((e.end_date or e.start_date) - e.start_date).days
+            if span(new) > span(old):  # lấy mốc nhiều ngày (đợt lễ) thay cho mốc 1 ngày (hạn chót chuẩn bị)
+                old.start_date, old.end_date, changed = new.start_date, new.end_date, True
     # tên dài/đầy đủ hơn thường chính xác hơn khi nguồn trước chỉ là tít báo cụt
     if len(new.name) > len(old.name) + 15 and len(new.name) <= 120:
         old.name, changed = new.name, True
@@ -93,7 +99,7 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
         if is_prep_title(e.name) and e.start_date and (e.end_date or e.start_date) == e.start_date:
             e.start_date = e.end_date = None
             changed = True
-        cn = canonical_name(e.name)
+        cn = canonical_name(event_name(e.name, e.summary))  # tên cũ là tít bài -> rút ra tên lễ hội/sự kiện
         if cn != e.name:
             e.name, changed = cn, True
         if changed:
@@ -104,7 +110,8 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
         for b in evs[i + 1:]:
             if b.id in gone or a.province != b.province:
                 continue
-            if a.start_date and b.start_date and abs((a.start_date - b.start_date).days) > 3:
+            if a.start_date and b.start_date and \
+                    (max(a.start_date, b.start_date) - min(a.last_date, b.last_date)).days > 3:
                 continue
             if is_duplicate(a, b) or (llm and llm.enabled and _maybe_same(a, b) and llm.same_event(_desc(a), _desc(b))):
                 merge_into(a, b)
@@ -176,7 +183,7 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
         return "past"
     if require_date and ev.start_date is None:
         return "not_event"  # tin không có từ khoá sự kiện thì phải có ngày mới giữ
-    cands = db.candidates_for_dedupe(province, ev.start_date)
+    cands = db.candidates_for_dedupe(province, ev.start_date, ev.end_date)
     match = next((c for c in cands if is_duplicate(ev, c)), None)
     if not match and llm and llm.enabled:
         match = next((c for c in cands[:5] if _maybe_same(ev, c) and llm.same_event(_desc(ev), _desc(c))), None)

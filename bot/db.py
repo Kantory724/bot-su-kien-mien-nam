@@ -115,13 +115,19 @@ class DB:
              config.now().isoformat(timespec="seconds"), self._search_text(e), e.id))
         self.conn.commit()
 
-    def candidates_for_dedupe(self, province: str, start: date | None) -> list[Event]:
-        """Sự kiện cùng tỉnh, lệch ngày <= 3 hoặc chưa rõ ngày."""
+    def candidates_for_dedupe(self, province: str, start: date | None, end: date | None = None) -> list[Event]:
+        """Sự kiện cùng tỉnh có khoảng ngày giao nhau/cách nhau <= 3 ngày (hoặc chưa rõ ngày).
+        So theo CẢ KHOẢNG ngày: hoạt động ngày cuối của một lễ hội dài ngày vẫn được nhận ra là cùng lễ hội."""
         rows = self.conn.execute("SELECT * FROM events WHERE province=?", (province,)).fetchall()
         out = []
         for r in rows:
             e = self._row_to_event(r)
-            if start is None or e.start_date is None or abs((e.start_date - start).days) <= 3:
+            if start is None or e.start_date is None:
+                out.append(e)
+                continue
+            a_end, b_end = (end or start), e.last_date
+            gap = (max(start, e.start_date) - min(a_end, b_end)).days
+            if gap <= 3:
                 out.append(e)
         return out
 
