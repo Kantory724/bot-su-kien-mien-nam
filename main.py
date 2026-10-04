@@ -31,6 +31,8 @@ def main(argv=None) -> int:
     sub.add_parser("get-chat-id", help="liệt kê chat id của những người đã nhắn cho bot")
     sub.add_parser("check-sources", help="kiểm tra từng nguồn tin còn hoạt động không")
     sub.add_parser("collect", help="thu thập tin + cảnh báo sự kiện lớn")
+    sub.add_parser("enrich", help="tìm lại bài báo (ưu tiên báo địa phương) để bổ sung thông tin cho sự kiện còn thiếu")
+    sub.add_parser("dedupe", help="gộp các sự kiện trùng đã lưu trong DB")
     d = sub.add_parser("digest", help="gửi bản tin 7 ngày tới")
     d.add_argument("--force", action="store_true", help="gửi lại dù hôm nay đã gửi")
     sub.add_parser("poll", help="trả lời lệnh người dùng (một lượt)")
@@ -52,7 +54,7 @@ def main(argv=None) -> int:
     from bot.db import DB
     from bot.exporter import export_excel
     from bot.llm import LLM
-    from bot.pipeline import _short, run_collect, run_digest
+    from bot.pipeline import _short, dedupe_existing, run_collect, run_digest
     from bot.runner import serve, tick
     from bot.telegram import Telegram
 
@@ -88,6 +90,11 @@ def main(argv=None) -> int:
     try:
         if a.cmd == "collect":
             run_collect(db, tg, llm)
+        elif a.cmd == "enrich":
+            from bot.enrich import enrich_events
+            print(f"Đã thử bổ sung {enrich_events(db, llm, config.today(), force=True, limit=20)} sự kiện")
+        elif a.cmd == "dedupe":
+            print(f"Đã gộp {dedupe_existing(db, llm)} sự kiện trùng")
         elif a.cmd == "digest":
             run_digest(db, tg, force=a.force)
         elif a.cmd == "poll":
@@ -101,7 +108,7 @@ def main(argv=None) -> int:
             p = export_excel(db, a.period, a.out)
             print(f"Đã xuất: {p}")
             if a.send:
-                for cid in config.chat_ids():
+                for cid in db.recipients():
                     tg.send_document(cid, p, "Danh sách sự kiện")
     except KeyboardInterrupt:
         pass
