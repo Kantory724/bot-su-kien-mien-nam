@@ -121,6 +121,14 @@ def _desc(e: Event) -> str:
     return f"{e.name} | {e.start_date}→{e.end_date} | {e.venue} | {e.summary}"[:400]
 
 
+def _junk_pair(a: Event, b: Event) -> bool:
+    """Cùng tỉnh, trùng khít khoảng ngày, và một bên có tên KHÔNG nhận ra là tên sự kiện (thường là tít báo cụt/giật tít,
+    vd 'Lễ hội khiến ... lao đao') -> coi là một sự kiện."""
+    if not (a.start_date and b.start_date and a.start_date == b.start_date and a.last_date == b.last_date):
+        return False
+    return not event_name(a.name, a.summary) or not event_name(b.name, b.summary)
+
+
 def dedupe_existing(db: DB, llm: LLM | None) -> int:
     """Dọn các sự kiện trùng đã lưu trong DB. Trả về số bản ghi đã gộp."""
     evs, gone, n = db.all_events(), set(), 0
@@ -144,8 +152,10 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
             if a.start_date and b.start_date and \
                     (max(a.start_date, b.start_date) - min(a.last_date, b.last_date)).days > 3:
                 continue
-            if is_duplicate(a, b) or mentions_same(a, b) or \
+            if is_duplicate(a, b) or mentions_same(a, b) or _junk_pair(a, b) or \
                     (llm and llm.enabled and _maybe_same(a, b) and llm.same_event(_desc(a), _desc(b))):
+                if not event_name(a.name, a.summary) and event_name(b.name, b.summary):
+                    a.name = b.name  # giữ tên đúng, bỏ tên tít báo
                 merge_into(a, b)
                 db.update_event(a)
                 if b.alerted:
@@ -348,6 +358,9 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     if db.get("fix_prep_v1") != "1":  # dọn một lần dữ liệu cũ bị nhận nhầm ngày chuẩn bị
         log.info("Dọn dữ liệu cũ: %d sự kiện đã gộp", dedupe_existing(db, None))
         db.set("fix_prep_v1", "1")
+    if db.get("fix_junk_v1") != "1":  # dọn một lần: gộp sự kiện tên tít báo với sự kiện đúng tên (cùng tỉnh, cùng ngày)
+        log.info("Dọn sự kiện trùng (v2): %d sự kiện đã gộp", dedupe_existing(db, None))
+        db.set("fix_junk_v1", "1")
     if db.get("fix_elsewhere_v1") != "1":  # dọn một lần: sự kiện diễn ra ngoài 8 tỉnh (vd Hà Nội)
         log.info("Dọn sự kiện ngoài 8 tỉnh: %d", len(prune_elsewhere(db)))
         db.set("fix_elsewhere_v1", "1")
