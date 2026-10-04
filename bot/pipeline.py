@@ -362,7 +362,9 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         stats["items"] += 1
         hits = event_keyword_hits(f"{it.title} {it.summary}")
         # Google News / Bing News đã được lọc theo chủ đề ngay từ truy vấn -> không bắt buộc có từ khoá trong tít
-        if (not hits and not it.is_gnews and not it.searched) or has_negative(it.title):
+        # Bing hay trả kèm tin rác (chiến sự, thể thao quốc tế...): tin tìm kiếm phải có từ khoá sự kiện HOẶC nhắc tên tỉnh
+        noisy = it.searched and not hits and not detect_province(it.title, it.summary)
+        if (not hits and not it.is_gnews and not it.searched) or noisy or has_negative(it.title):
             db.add_article(it.link, it.source_id, it.title, "skip")
             continue
         if stats["fetched"] >= cap or time.monotonic() > art_deadline:
