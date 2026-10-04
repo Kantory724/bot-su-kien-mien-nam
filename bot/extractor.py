@@ -3,6 +3,7 @@ import re
 from datetime import date, timedelta
 
 from .geo import PROVINCES, normalize
+from .lunar import lunar_to_solar
 
 # ---------- Lọc tin liên quan ----------
 EVENT_KW = [
@@ -31,20 +32,32 @@ def has_negative(title: str) -> bool:
 # ---------- Ngày ----------
 _Y = r"(?:\s*/\s*(\d{4}))?"
 _WY = r"(?:\s*(?:năm\s*)?(\d{4}))?"
-_RNG = r"(?:-|–|—|đến|tới)"
+_RNG = r"(?:-|–|—|đến hết|đến|tới)"
 R_FULL = re.compile(rf"(\d{{1,2}})\s*/\s*(\d{{1,2}}){_Y}\s*{_RNG}\s*(?:ngày\s*)?(\d{{1,2}})\s*/\s*(\d{{1,2}}){_Y}", re.I)
 R_WORD2 = re.compile(rf"(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}\s*{_RNG}\s*(?:ngày\s*)?(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}", re.I)
 R_SHORT = re.compile(rf"(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\s*/\s*(\d{{1,2}}){_Y}", re.I)
 R_WORD1 = re.compile(rf"(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}", re.I)
 R_SINGLE = re.compile(rf"(?<![\d/])(\d{{1,2}})\s*/\s*(\d{{1,2}}){_Y}(?![\d/])", re.I)
 R_WSINGLE = re.compile(rf"(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_WY}", re.I)
-_UNITS = r"triệu|nghìn|ngàn|tỷ|vạn|%|km|kg|ha|m2|m²|tấn|điểm|người|lượt|đồng|vnd|usd"
+_UNITS = r"triệu|nghìn|ngàn|tỷ|vạn|%|km|kg|ha|m2|m²|tấn|điểm|người|lượt|đồng|vnd|usd|năm|tháng|tuần|lần|tuổi|giờ|phút|giây|mét|phần trăm|lít"
 _DOT_END = rf"(?![\d/]|[.,]\d|\s*(?:{_UNITS})(?!\w))"
 _YD = r"(?:\.(\d{4}))?"
 R_DFULL = re.compile(rf"(?<![\d/.,])(\d{{1,2}})\.(\d{{1,2}}){_YD}\s*{_RNG}\s*(?:ngày\s*)?(\d{{1,2}})\.(\d{{1,2}}){_YD}{_DOT_END}", re.I)
 R_DSHORT = re.compile(rf"(?<![\d/.,])(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\.(\d{{1,2}}){_YD}{_DOT_END}", re.I)
 R_DSINGLE = re.compile(rf"(?<![\d/.,])(\d{{1,2}})\.(\d{{1,2}}){_YD}{_DOT_END}", re.I)
-R_LUNAR = re.compile(r"\s*\(?\s*(?:âm lịch|âm|âl)\b", re.I)
+_MARK = r"\s*\(?\s*(?:âm lịch|âl\b)"
+R_LUNAR = re.compile(_MARK, re.I)
+_RN = r"(?:-|–|—|đến|tới)"
+_NB = r"(?<![\d/])"
+L_SL2 = re.compile(rf"{_NB}(\d{{1,2}})\s*/\s*(\d{{1,2}})\s*{_RN}\s*(?:ngày\s*)?(\d{{1,2}})\s*/\s*(\d{{1,2}}){_MARK}", re.I)
+L_SL1 = re.compile(rf"{_NB}(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\s*/\s*(\d{{1,2}}){_MARK}", re.I)
+L_SL0 = re.compile(rf"{_NB}(\d{{1,2}})\s*/\s*(\d{{1,2}}){_MARK}", re.I)
+L_DL2 = re.compile(rf"{_NB}(\d{{1,2}})\.(\d{{1,2}})\s*{_RN}\s*(?:ngày\s*)?(\d{{1,2}})\.(\d{{1,2}}){_MARK}", re.I)
+L_DL1 = re.compile(rf"{_NB}(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\.(\d{{1,2}}){_MARK}", re.I)
+L_DL0 = re.compile(rf"{_NB}(\d{{1,2}})\.(\d{{1,2}}){_MARK}", re.I)
+L_W2 = re.compile(rf"{_NB}(\d{{1,2}})\s*tháng\s*(\d{{1,2}})\s*{_RN}\s*(?:ngày\s*)?(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_MARK}", re.I)
+L_W1 = re.compile(rf"{_NB}(\d{{1,2}})\s*(?:-|–|—|đến|tới|và)\s*(?:ngày\s*)?(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_MARK}", re.I)
+L_W0 = re.compile(rf"{_NB}(\d{{1,2}})\s*tháng\s*(\d{{1,2}}){_MARK}", re.I)
 R_DEADLINE = re.compile(r"trước\s*(?:ngày\s*)?$", re.I)
 
 
@@ -98,6 +111,46 @@ def find_dates(text: str, ref: date) -> list[tuple[int, date, date]]:
         a = _mk(int(d), int(mo), int(y) if y else None, ref)
         return (a, a) if a else None
 
+    def lunar_conv(d: int, m: int, ref_y: int) -> date | None:
+        a = lunar_to_solar(d, m, ref_y)
+        if a is None or a < ref - timedelta(days=60):
+            a = lunar_to_solar(d, m, ref_y + 1) or a
+        return a
+
+    def l_range(m):
+        g = [int(x) for x in m.groups()]
+        if len(g) == 4:
+            d1, m1, d2, m2 = g
+        else:
+            d1, d2, m1 = g
+            m2 = m1
+        a = lunar_conv(d1, m1, ref.year)
+        if not a:
+            return None
+        b = lunar_to_solar(d2, m2, a.year if (m2, d2) >= (m1, d1) else a.year + 1) or lunar_to_solar(d2, m2, ref.year + 1)
+        # b phải sau a: thử cùng năm âm với a
+        for ly in (ref.year, ref.year + 1):
+            cand = lunar_to_solar(d2, m2, ly)
+            if cand and cand >= a and (b is None or b < a or cand < b):
+                b = cand
+        return (a, b) if b and b >= a and (b - a).days < 40 else (a, a)
+
+    def l_single(m):
+        d, mo = int(m.group(1)), int(m.group(2))
+        a = lunar_conv(d, mo, ref.year)
+        return (a, a) if a else None
+
+    def take_lunar(rx, build):
+        nonlocal masked
+        for m in list(rx.finditer(masked)):
+            res = build(m)
+            masked = masked[: m.start()] + " " * (m.end() - m.start()) + masked[m.end():]
+            if res:
+                found.append((m.start(), res[0], res[1]))
+
+    for rx, b in ((L_SL2, l_range), (L_DL2, l_range), (L_W2, l_range), (L_SL1, l_range), (L_DL1, l_range),
+                  (L_W1, l_range), (L_SL0, l_single), (L_DL0, l_single), (L_W0, l_single)):
+        take_lunar(rx, b)
     take(R_FULL, full)
     take(R_WORD2, full)
     take(R_DFULL, full)

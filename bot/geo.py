@@ -23,7 +23,8 @@ PROVINCES: dict[str, tuple[str, list[str]]] = {
         "tay ninh", "nui ba den", "long an", "tan an", "kien tuong", "moc bai", "hoa thanh"]),
     "angiang": ("An Giang", [
         "an giang", "chau doc", "long xuyen", "nui sam", "ha tien", "kien giang", "rach gia",
-        "phu quoc", "tri ton", "nui cam", "tinh bien", "kien luong"]),
+        "phu quoc", "tri ton", "nui cam", "tinh bien", "kien luong", "bay nui", "that son",
+        "tan chau", "an phu", "thoai son", "chau phu"]),
     "dongthap": ("Đồng Tháp", [
         "dong thap", "cao lanh", "sa dec", "tien giang", "my tho", "go cong", "cai be",
         "tram chim", "vinh trang"]),
