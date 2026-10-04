@@ -104,7 +104,7 @@ def main(argv=None) -> int:
             p = export_excel(db, a.period, a.out)
             print(f"Đã xuất: {p}")
             if a.send:
-                for cid in db.recipients():
+                for cid in config.chat_ids():
                     tg.send_document(cid, p, "Danh sách sự kiện")
     except KeyboardInterrupt:
         pass

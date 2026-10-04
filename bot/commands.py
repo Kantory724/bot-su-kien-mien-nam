@@ -15,7 +15,6 @@ HELP = """Bot tin lễ hội, sự kiện miền Nam
 /excel [tuan|thang] – nhận file Excel danh sách sự kiện
 /trangthai – tình trạng hệ thống và các nguồn tin
 /tatca – liệt kê mọi sự kiện đang lưu (kiểm tra dữ liệu)
-/stop – huỷ nhận tin
 /id – xem Chat ID của cuộc trò chuyện này
 Tỉnh hỗ trợ: """ + ", ".join(v[0] for v in PROVINCES.values())
 
@@ -35,20 +34,10 @@ def parse(text: str) -> tuple[str, str]:
     return cmd, arg.strip()
 
 
-def handle(text: str, chat_id: str, db: DB, name: str = "") -> Reply:
+def handle(text: str, chat_id: str, db: DB) -> Reply:
     cmd, arg = parse(text)
     today = config.today()
-    if cmd == "start":
-        code = config.join_code()
-        known = chat_id in db.recipients()
-        if code and not known and arg != code:
-            return Reply(["Bot yêu cầu mã tham gia. Gõ: /start <mã>"])
-        db.add_subscriber(chat_id, name)
-        return Reply(["Đã đăng ký. Bản tin sự kiện gửi tự động lúc 07:00 mỗi sáng, gõ /stop để huỷ.", HELP])
-    if cmd == "stop":
-        db.remove_subscriber(chat_id)
-        return Reply(["Đã huỷ nhận tin. Gõ /start để đăng ký lại."])
-    if cmd == "help":
+    if cmd in ("start", "help"):
         return Reply([HELP])
     if cmd == "id":
         return Reply([f"Chat ID của bạn: {chat_id}"])
@@ -92,9 +81,6 @@ def handle(text: str, chat_id: str, db: DB, name: str = "") -> Reply:
                  f"Lần thu thập gần nhất: {db.get('last_collect', 'chưa có')}",
                  f"Bản tin gần nhất: {db.get('last_digest_date', 'chưa có')}",
                  f"Nguồn: {len(rows)} (lỗi: {len(bad)})"]
-        lines.append("AI: " + db.get("llm_state", "chưa có"))
-        lines.append("AI tìm sự kiện: " + db.get("last_discover", "chưa có"))
-        lines.append("Giải mã link Google News (lượt gần nhất): " + db.get("last_gn", "chưa có"))
         st = db.conn.execute("SELECT status, COUNT(*) FROM articles GROUP BY 1 ORDER BY 2 DESC").fetchall()
         lines.append("Bài đã xử lý: " + (", ".join(f"{r[0]}={r[1]}" for r in st) or "chưa có"))
         lines += [f" - {r['name']}: lỗi {r['fail_count']} lần – {r['last_error'][:80]}" for r in bad]

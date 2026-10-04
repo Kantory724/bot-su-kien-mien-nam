@@ -12,14 +12,14 @@ from .pipeline import run_collect, run_digest
 from .telegram import Telegram
 
 log = logging.getLogger("runner")
-OPEN_CMDS = {"start", "stop", "help", "id"}  # ai cũng dùng được: đăng ký / huỷ / trợ giúp
+OPEN_CMDS = {"start", "help", "id"}  # ai cũng dùng được (để lấy Chat ID khi cài đặt)
 
 
 def poll_once(db: DB, tg: Telegram, timeout: int = 0) -> int:
     """Đọc tin nhắn mới và trả lời. Chỉ chat nằm trong TELEGRAM_CHAT_IDS mới dùng được các lệnh tra cứu."""
     offset = int(db.get("tg_offset", "0") or 0) or None
     updates = tg.get_updates(offset, timeout)
-    allowed = set(db.recipients())
+    allowed = set(config.chat_ids())
     for u in updates:
         db.set("tg_offset", u["update_id"] + 1)
         msg = u.get("message") or {}
@@ -31,9 +31,10 @@ def poll_once(db: DB, tg: Telegram, timeout: int = 0) -> int:
             continue
         try:
             if chat_id not in allowed and cmd not in OPEN_CMDS:
-                tg.send(chat_id, "Bạn chưa đăng ký nhận tin. Gõ /start" + (" <mã tham gia>" if config.join_code() else "") + " để đăng ký.")
+                tg.send(chat_id, f"Chat này chưa được cấp quyền nhận tin.\nChat ID: {chat_id}\n"
+                                 "Hãy gửi ID này cho quản trị viên để thêm vào TELEGRAM_CHAT_IDS.")
                 continue
-            rep: Reply = handle(text, chat_id, db, (msg.get("chat") or {}).get("first_name") or (msg.get("chat") or {}).get("title") or "")
+            rep: Reply = handle(text, chat_id, db)
             for t in rep.texts:
                 tg.send(chat_id, t)
             if rep.excel:
@@ -78,7 +79,7 @@ def tick(db: DB, tg: Telegram, llm: LLM | None = None, poll_timeout: int = 0) ->
 def _send_excel(db: DB, tg: Telegram, period: str) -> None:
     path = export_excel(db, period)
     cap = "Danh sách sự kiện tuần này" if period == "week" else "Danh sách sự kiện tháng này"
-    for cid in db.recipients():
+    for cid in config.chat_ids():
         try:
             tg.send_document(cid, path, cap)
         except Exception as e:  # noqa

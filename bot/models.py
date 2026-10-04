@@ -10,14 +10,7 @@ SENSITIVE = ["san bay", "cang", "khu du lich", "quang truong", "san van dong", "
              "ben xe", "cong vien"]
 MID_KW = ["le hoi", "hoi cho", "trien lam", "marathon", "giai chay", "via ba", "ok om bok",
           "chol chnam thmay", "sen dolta", "khai mac", "festival", "le ky niem", "dua ghe",
-          "dua bo", "giao thua", "tet", "ky yen", "nghinh ong", "cau ngu", "le via", "cung dinh", "gio to", "vu lan", "nghi le", "quoc khanh", "hoi nghi", "dien dan"]
-
-# Lễ hội truyền thống / tín ngưỡng: không cần quy mô (ẩn số người nhỏ, luôn tối thiểu mức TB)
-TRADITIONAL_KW = ["ooc om boc", "kate", "dieu tri cung", "trung thu", "trang ram", "via ba", "ba chua xu", "ok om bok", "chol chnam thmay", "sen dolta", "ky yen", "nghinh ong", "cau ngu",
-                  "cung dinh", "le via", "gio to", "vu lan", "le hoi dinh", "le hoi chua", "le hoi den", "le hoi mieu",
-                  "le dang huong", "le roc", "dua ghe", "dua bo", "hoi dua", "le ha dien", "le thanh minh",
-                  "nguyen trung truc", "nguyen dinh chieu", "thoai ngoc hau", "tran hung dao", "ba den", "quan the am",
-                  "nguyen huu canh", "le van duyet", "ong dia", "ba thien hau", "quan de", "le hoi nghinh"]
+          "dua bo", "giao thua", "tet"]
 
 PRIORITY_LABEL = {"CAO": "CAO", "TB": "TB", "THAP": "THẤP"}
 PRIORITY_RANK = {"CAO": 0, "TB": 1, "THAP": 2}
@@ -49,18 +42,6 @@ class Event:
         """Tiêu chí cảnh báo riêng: >= 10.000 người, hoặc có pháo hoa, hoặc đại nhạc hội."""
         return bool((self.crowd or 0) >= config.large_crowd() or self.fireworks or self.big_concert)
 
-    @property
-    def is_traditional(self) -> bool:
-        n = " " + normalize(f"{self.name} {self.venue}") + " "
-        return any(f" {k} " in n for k in TRADITIONAL_KW)
-
-    @property
-    def shown_crowd(self) -> int | None:
-        """Số người hiển thị: lễ hội truyền thống chỉ hiện khi rất lớn (>= ngưỡng cảnh báo), tránh con số nhỏ gây nhiễu."""
-        if self.crowd and self.is_traditional and self.crowd < config.large_crowd():
-            return None
-        return self.crowd
-
     def large_reasons(self) -> list[str]:
         r = []
         if (self.crowd or 0) >= config.large_crowd():
@@ -77,8 +58,6 @@ class Event:
         crowd = self.crowd or 0
         if self.is_large or (crowd >= 5000 and sensitive):
             return "CAO"
-        if self.is_traditional:
-            return "TB"
         if crowd >= 1000 or sensitive or any(f" {k} " in n for k in MID_KW):
             return "TB"
         return "THAP"

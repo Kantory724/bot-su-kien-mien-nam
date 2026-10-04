@@ -39,7 +39,6 @@ class Telegram:
         if not self.dry and not self.token:
             raise RuntimeError("Thiếu TELEGRAM_BOT_TOKEN (đặt trong .env hoặc GitHub Secrets).")
         self.s = requests.Session()
-        self.dead: set[str] = set()  # chat đã chặn bot/không còn tồn tại
 
     def _call(self, method: str, data=None, files=None, timeout=40):
         url = f"https://api.telegram.org/bot{self.token}/{method}"
@@ -74,8 +73,6 @@ class Telegram:
                 ok += 1
             except Exception as e:  # noqa - 1 người chặn bot không được làm hỏng cả đợt gửi
                 log.error("Gửi tới %s thất bại: %s", cid, e)
-                if any(k in str(e).lower() for k in ("blocked", "chat not found", "deactivated", "kicked")):
-                    self.dead.add(str(cid))
         return ok
 
     def send_document(self, chat_id: str, path, caption: str = "") -> None:

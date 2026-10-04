@@ -59,11 +59,6 @@ def admin_ids() -> list[str]:
     return _ids("ADMIN_CHAT_IDS") or chat_ids()
 
 
-def join_code() -> str:
-    """Mã tham gia (tuỳ chọn). Đặt BOT_JOIN_CODE để chỉ người có mã mới tự đăng ký được; để trống = ai cũng đăng ký được."""
-    return env("BOT_JOIN_CODE")
-
-
 def db_path() -> Path:
     p = Path(env("DB_PATH", "data/events.db"))
     return p if p.is_absolute() else ROOT / p
@@ -90,40 +85,8 @@ def fail_threshold() -> int:
 
 
 def max_article_fetch() -> int:
-    return env_int("MAX_ARTICLE_FETCH", 50)
-
-
-def enrich_max() -> int:
-    """Số sự kiện tối đa được tìm lại bài báo trong mỗi lượt thu thập."""
-    return env_int("ENRICH_MAX", 10)
-
-
-def enrich_budget_sec() -> int:
-    return env_int("ENRICH_BUDGET_SEC", 70)
+    return env_int("MAX_ARTICLE_FETCH", 40)
 
 
 def llm_max_calls() -> int:
-    return env_int("LLM_MAX_CALLS", 60)
-
-
-def collect_budget_sec() -> int:
-    """Tổng thời gian tối đa cho một lượt thu thập (giây). Hết giờ thì dừng êm, phần còn lại để lượt sau xử lý."""
-    return env_int("COLLECT_BUDGET_SEC", 540)
-
-
-def llm_search_max() -> int:
-    """Số lần gọi Gemini có Google Search tối đa mỗi lượt thu thập (tìm sự kiện + tra ngày/địa điểm)."""
-    return env_int("LLM_SEARCH_MAX", 24)
-
-
-def lookup_max() -> int:
-    return env_int("LOOKUP_MAX", 4)
-
-
-def discover_every_hours() -> int:
-    """Khoảng cách tối thiểu giữa hai lần hỏi Gemini+Google Search về cùng một tỉnh."""
-    return env_int("DISCOVER_EVERY_HOURS", 8)
-
-
-def discover_provinces_per_run() -> int:
-    return env_int("DISCOVER_PER_RUN", 8)
+    return env_int("LLM_MAX_CALLS", 30)
