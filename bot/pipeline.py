@@ -128,6 +128,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
     hint = item.province_hint if item.province_hint in PROVINCES else None
     # gợi ý của nguồn chỉ được tin khi tít/đoạn mở đầu có nhắc tới tỉnh đó
     province = strong or (hint if hint and score_provinces(item.title, lead).get(hint) else None)
+    if not province and item.trust_hint and hint:
+        province = hint  # báo địa phương (vd Báo Cần Thơ): bài hiếm khi nhắc tên tỉnh trong tít -> tin theo nguồn
     if not province and item.is_gnews and not body and hint:
         province = hint  # chưa đọc được bài: tin theo vùng đã tìm trên Google News (đã chặn tít nói về nơi khác)
     if not province:

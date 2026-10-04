@@ -40,6 +40,7 @@ class Item:
     published: date | None = None
     province_hint: str | None = None
     is_gnews: bool = False
+    trust_hint: bool = False  # nguồn báo địa phương: tin gợi ý tỉnh của nguồn khi tít/đoạn đầu không nhắc tên tỉnh
 
 
 def load_sources(path=None) -> list[dict]:
@@ -70,11 +71,11 @@ def _get(url: str, headers: dict | None = None) -> requests.Response:
     return r
 
 
-def fetch_source(src: dict) -> list[Item]:
-    if src["type"] == "html":
-        return _fetch_html(src)
-    r = _get(src["url"])
-    feed = feedparser.parse(r.content)
+_TAIL_DATE = re.compile(r"\s+(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+\d+)?\s*$")
+
+
+def _items_from_feed(src: dict, content: bytes) -> list[Item]:
+    feed = feedparser.parse(content)
     if not feed.entries:
         raise RuntimeError(f"RSS không có mục nào (bozo={getattr(feed, 'bozo', '?')})")
     items = []
@@ -90,7 +91,103 @@ def fetch_source(src: dict) -> list[Item]:
             continue
         is_g = bool(src.get("is_gnews")) or "news.google.com" in link
         items.append(Item(src["id"], src["name"], _text(e.title), link, "" if is_g else _text(e.get("summary", "")),
-                          pub, src.get("province_hint"), is_g))
+                          pub, src.get("province_hint"), is_g, bool(src.get("local"))))
+    return items
+
+
+def fetch_source(src: dict) -> list[Item]:
+    if src["type"] == "html":
+        return _fetch_html(src)
+    if src["type"] == "auto":
+        return _fetch_auto(src)
+    r = _get(src["url"])
+    return _items_from_feed(src, r.content)
+
+
+# ---------- Nguồn "auto": tự tìm RSS, không có thì lấy các link bài trên trang ----------
+_FEED_HREF = re.compile(r"(\.rss(\?.*)?$|rss\.xml$|/feed/?$|/rss/[^/]+\.(rss|xml)$|/rss/[^/]+/?$)", re.I)
+_SKIP_HREF = re.compile(r"^(javascript|mailto|tel):|#|/(tag|tags|search|tim-kiem|rss|login|dang-nhap|lien-he|"
+                        r"gioi-thieu|video|photo)(/|$|\?)", re.I)
+
+
+def _host(u: str) -> str:
+    return (urlparse(u).hostname or "").lower().removeprefix("www.")
+
+
+def _find_feeds(soup: BeautifulSoup, base: str) -> list[str]:
+    out = []
+    for l in soup.find_all("link", href=True):
+        rel = " ".join(l.get("rel") or []) if isinstance(l.get("rel"), list) else str(l.get("rel") or "")
+        t = (l.get("type") or "").lower()
+        if "alternate" in rel.lower() and ("rss" in t or "atom" in t):
+            out.append(urljoin(base, l["href"]))
+    for a in soup.find_all("a", href=True):
+        if _FEED_HREF.search(a["href"]) and "rss.html" not in a["href"].lower():
+            out.append(urljoin(base, a["href"]))
+    return list(dict.fromkeys(out))
+
+
+def _heuristic_items(soup: BeautifulSoup, base: str, src: dict) -> list[Item]:
+    """Trang không có RSS: lấy các link trông giống bài báo (cùng tên miền, tít dài, đường dẫn có số/.html)."""
+    items, seen, bh = [], set(), _host(base)
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        if _SKIP_HREF.search(href):
+            continue
+        link = urljoin(base, href).split("#")[0]
+        lh = _host(link)
+        if not (lh == bh or lh.endswith("." + bh)) or link in seen:
+            continue
+        path = urlparse(link).path
+        if len(path.strip("/")) < 10 or not (re.search(r"\d", path) or path.lower().endswith((".html", ".htm", ".aspx", ".chn"))):
+            continue
+        title = _text(a.get_text(" ")) or (a.get("title") or "").strip()
+        pub = None
+        m = _TAIL_DATE.search(title)
+        if m:
+            try:
+                pub = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            except ValueError:
+                pub = None
+            title = title[:m.start()].strip()
+        if len(title) < 20 or len(title.split()) < 4:
+            continue
+        seen.add(link)
+        items.append(Item(src["id"], src["name"], title, link, "", pub, src.get("province_hint"), False,
+                          bool(src.get("local"))))
+        if len(items) >= 80:
+            break
+    return items
+
+
+def _fetch_auto(src: dict) -> list[Item]:
+    urls = src.get("urls") or [src["url"]]
+    items, seen, ok, last = [], set(), 0, None
+    for u in urls:
+        try:
+            r = _get(u)
+            got: list[Item] = []
+            if "xml" in r.headers.get("content-type", "").lower() or r.content[:120].lstrip().startswith(b"<?xml"):
+                got = _items_from_feed(src, r.content)  # chính URL này là một RSS
+            else:
+                soup = BeautifulSoup(_decode_response(r), "html.parser")
+                for f in _find_feeds(soup, r.url)[:3]:
+                    try:
+                        got += _items_from_feed(src, _get(f).content)
+                    except Exception:  # noqa - RSS hỏng thì bỏ qua, còn lấy link trên trang
+                        continue
+                got += _heuristic_items(soup, r.url, src)
+            ok += 1
+            for it in got:
+                if it.link not in seen:
+                    seen.add(it.link)
+                    items.append(it)
+        except Exception as e:  # noqa - 1 địa chỉ hỏng không làm hỏng cả nguồn
+            last = e
+    if not ok:
+        raise last or RuntimeError("không truy cập được địa chỉ nào")
+    if not items:
+        raise RuntimeError("Không tìm thấy bài nào (trang đổi giao diện hoặc chặn bot?)")
     return items
 
 
@@ -107,10 +204,18 @@ def _fetch_html(src: dict) -> list[Item]:
             continue
         link = urljoin(src["url"], a["href"])
         title = _text(a.get_text(" ")) or _text(el.get_text(" "))
+        pub = None
+        m = _TAIL_DATE.search(title)  # vd: "Hội Đua bò ... 2026 01/10/2026 85" -> tách ngày đăng + lượt xem khỏi tít
+        if m:
+            try:
+                pub = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            except ValueError:
+                pub = None
+            title = title[:m.start()].strip()
         if link in seen or len(title) < 8:
             continue
         seen.add(link)
-        items.append(Item(src["id"], src["name"], title, link, "", None, src.get("province_hint")))
+        items.append(Item(src["id"], src["name"], title, link, "", pub, src.get("province_hint"), False, bool(src.get("local"))))
     return items
 
 
@@ -275,6 +380,10 @@ _resolve_gnews = resolve_gnews  # tên cũ, enrich.py vẫn import tên này
 
 
 # ======================= Tải nội dung bài =======================
+_END_MARKERS = ("related post", "bài viết liên quan", "tin liên quan", "tin cùng chuyên mục", "bình luận",
+                "comments", "có thể bạn quan tâm", "tin mới nhất", "tin khác")
+
+
 def _decode_response(r: requests.Response) -> str:
     enc = r.encoding
     if not enc or enc.lower() in ("iso-8859-1", "latin-1", "ascii"):
@@ -285,6 +394,48 @@ def _decode_response(r: requests.Response) -> str:
         return r.content.decode("utf-8", errors="replace")
 
 
+def _meta(soup: BeautifulSoup, *names: str) -> list[str]:
+    out = []
+    for n in names:
+        d = soup.find("meta", attrs={"property": n}) or soup.find("meta", attrs={"name": n})
+        if d and d.get("content") and d["content"].strip():
+            out.append(re.sub(r"\s+", " ", d["content"]).strip())
+    return out
+
+
+def _main_text(soup: BeautifulSoup) -> str:
+    """Lấy nội dung chính. Ưu tiên các thẻ <p>; nếu CMS không dùng <p> (nội dung nằm trong <div>/<br>)
+    thì lấy theo dòng và cắt tại mục 'Related Post/Bình luận' để không lẫn tin khác."""
+    for t in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]):
+        t.decompose()
+    root = soup.find("article") or soup
+    paras = [p.get_text(" ", strip=True) for p in root.find_all("p")]
+    text = "\n".join(p for p in paras if len(p) > 25)
+    if len(text) < 600:
+        lines = []
+        for ln in root.get_text("\n").split("\n"):
+            ln = re.sub(r"\s+", " ", ln).strip()
+            if ln.lower().startswith(_END_MARKERS) and len(ln) < 40:
+                break
+            if len(ln) > 25:
+                lines.append(ln)
+        alt = "\n".join(dict.fromkeys(lines))
+        if len(alt) > len(text):
+            text = alt
+    return text
+
+
+def _download(url: str) -> str:
+    try:
+        r = _get(url)
+    except requests.HTTPError as e:  # nhiều báo chặn UA bot -> thử lại bằng UA trình duyệt
+        if e.response is not None and e.response.status_code in (401, 403, 406, 429, 503):
+            r = _get(url, {"User-Agent": BROWSER_UA, "Accept-Language": "vi,en;q=0.8"})
+        else:
+            raise
+    return _decode_response(r)
+
+
 def fetch_article_text(item: Item) -> str:
     """Tải nội dung bài. Lỗi -> trả chuỗi rỗng (vẫn xử lý được bằng tiêu đề/tóm tắt)."""
     url = item.link
@@ -293,27 +444,9 @@ def fetch_article_text(item: Item) -> str:
         if not url:
             return ""
     try:
-        try:
-            r = _get(url)
-        except requests.HTTPError as e:  # nhiều báo chặn UA bot -> thử lại bằng UA trình duyệt
-            if e.response is not None and e.response.status_code in (401, 403, 406, 429, 503):
-                r = _get(url, {"User-Agent": BROWSER_UA, "Accept-Language": "vi,en;q=0.8"})
-            else:
-                raise
-        html = _decode_response(r)
-        soup = BeautifulSoup(html, "html.parser")
-        desc_parts = []
-        for attrs in ({"property": "og:description"}, {"name": "description"}):
-            d = soup.find("meta", attrs=attrs)
-            if d and d.get("content"):
-                desc_parts.append(d["content"].strip())
-        for t in soup(["script", "style", "nav", "footer", "header", "aside", "form"]):
-            t.decompose()
-        root = soup.find("article") or soup
-        paras = [p.get_text(" ", strip=True) for p in root.find_all("p")]
-        if sum(len(p) for p in paras if len(p) > 25) < 200 and root is not soup:
-            paras = [p.get_text(" ", strip=True) for p in soup.find_all("p")]  # <article> quá ngắn -> lấy cả trang
-        text = "\n".join(p for p in paras if len(p) > 25)
+        soup = BeautifulSoup(_download(url), "html.parser")
+        desc_parts = _meta(soup, "og:description", "description")
+        text = _main_text(soup)
         if desc_parts:
             text = "\n".join(dict.fromkeys(desc_parts)) + "\n" + text
         time.sleep(0.4)
@@ -321,3 +454,21 @@ def fetch_article_text(item: Item) -> str:
     except Exception as e:  # noqa
         log.info("Không tải được bài %s: %s", url[:80], type(e).__name__)
         return ""
+
+
+def item_from_url(url: str) -> Item:
+    """Tạo Item từ một đường link bất kỳ (báo thường hoặc Google News) - dùng cho lệnh add-url."""
+    is_g = "news.google.com" in url
+    real = resolve_gnews(url) if is_g else url
+    if not real:
+        raise RuntimeError("Không giải mã được link Google News này")
+    soup = BeautifulSoup(_download(real), "html.parser")
+    title = (_meta(soup, "og:title") or [""])[0]
+    if not title and soup.find("h1"):
+        title = soup.find("h1").get_text(" ", strip=True)
+    if not title and soup.title:
+        title = soup.title.get_text(" ", strip=True)
+    title = re.sub(r"\s+", " ", title).strip()
+    if len(title) < 8:
+        raise RuntimeError("Không đọc được tiêu đề bài")
+    return Item("manual", "Thêm tay", title, real, "", config.today(), None, False)

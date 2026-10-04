@@ -90,7 +90,7 @@ def fail_threshold() -> int:
 
 
 def max_article_fetch() -> int:
-    return env_int("MAX_ARTICLE_FETCH", 40)
+    return env_int("MAX_ARTICLE_FETCH", 80)
 
 
 def enrich_max() -> int:
