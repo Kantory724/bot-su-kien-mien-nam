@@ -20,8 +20,9 @@ sources:
   - {id: dantri-giaitri,    name: "Dân Trí - Giải trí",   type: rss, url: "https://dantri.com.vn/rss/giai-tri.rss"}
   - {id: vnexpress-thoisu,  name: "VnExpress - Thời sự",  type: rss, url: "https://vnexpress.net/rss/thoi-su.rss"}
   - {id: tuoitre-thoisu,    name: "Tuổi Trẻ - Thời sự",   type: rss, url: "https://tuoitre.vn/rss/thoi-su.rss"}
-  - {id: laodong-vanhoa,    name: "Lao Động - Văn hóa",   type: rss, url: "https://laodong.vn/rss/van-hoa.rss"}
-  - {id: laodong-dulich,    name: "Lao Động - Du lịch",   type: rss, url: "https://laodong.vn/rss/du-lich.rss"}
+  # Lao Động: link RSS chưa xác nhận được (báo "RSS không có mục nào") -> tắt. Lấy đúng link ở laodong.vn/rss rồi bật lại.
+  - {id: laodong-vanhoa,    name: "Lao Động - Văn hóa",   type: rss, enabled: false, url: "https://laodong.vn/rss/van-hoa.rss"}
+  - {id: laodong-dulich,    name: "Lao Động - Du lịch",   type: rss, enabled: false, url: "https://laodong.vn/rss/du-lich.rss"}
 
   # ---- Báo địa phương + tổng hợp, tìm theo từng tỉnh (Bing News RSS) - NGUỒN TÌM KIẾM CHÍNH ----
   # topics là DANH SÁCH nhóm từ khoá; mỗi (tỉnh x nhóm) là một truy vấn ngắn (Bing giới hạn độ dài truy vấn).
