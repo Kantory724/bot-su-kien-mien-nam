@@ -9,7 +9,7 @@ from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
 from .extractor import (canonical_name, choose_date, event_keyword_hits, extract_rules, find_dates,
-                        has_negative, is_prep_title, valid_venue)
+                        has_negative, is_cultural_event, is_prep_title, valid_venue)
 from .formatter import format_alert, format_digest
 from .geo import PROVINCES, detect_province, normalize, score_provinces, title_elsewhere
 from .llm import LLM
@@ -117,6 +117,16 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
     return n
 
 
+def prune_noise(db: DB) -> list[str]:
+    """Xoá khỏi DB các 'sự kiện' không phải lễ hội/văn hoá (tin hành chính lọt vào trước đây). Trả về danh sách tên đã xoá."""
+    gone = []
+    for e in db.all_events():
+        if not is_cultural_event(e.name, e.summary, e.crowd, e.fireworks, e.big_concert):
+            db.delete_event(e.id)
+            gone.append(f"{e.start_date} | {e.name[:80]}")
+    return gone
+
+
 # ---------- Xử lý 1 bài ----------
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_date: bool = False) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
@@ -136,11 +146,13 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
     if not province:
         return "out_of_scope"
     info = extract_rules(item.title, f"{item.summary}\n{body}".strip(), item.published, today)
+    ai_ok = False
     if llm and llm.enabled:
         ai = llm.extract(item.title, f"{item.summary}\n{body}".strip(), item.published, today)
         if ai:
             if not ai["is_event"]:
                 return "not_event"
+            ai_ok = True
             if not ai["province"] and not strong:
                 return "out_of_scope"  # tỉnh chỉ do gợi ý của Google News, AI xác nhận không thuộc 8 tỉnh
             province = ai["province"] or province
@@ -149,6 +161,9 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
                     info[k] = ai[k]
             info["fireworks"] = info["fireworks"] or ai["fireworks"]
             info["big_concert"] = info["big_concert"] or ai["big_concert"]
+    if not ai_ok and not is_cultural_event(item.title, f"{item.summary} {body}".strip(), info["crowd"],
+                                           info["fireworks"], info["big_concert"]):
+        return "not_event"  # tin hành chính / hội nghị / tập huấn... không phải lễ hội, văn hoá, sự kiện đông người
     if is_prep_title(item.title):  # ngày diễn ra chỉ lấy từ nội dung bài, không lấy từ tít (hạn chót chuẩn bị)
         bd = choose_date(find_dates(f"{item.summary}\n{body}", item.published or today), item.published or today)
         info["start_date"], info["end_date"] = bd if bd else (None, None)

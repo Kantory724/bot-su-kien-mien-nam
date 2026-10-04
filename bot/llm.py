@@ -15,7 +15,7 @@ DEFAULT_MODEL = {"gemini": "gemini-2.5-flash", "anthropic": "claude-haiku-4-5-20
 PROMPT = """Bạn trích xuất thông tin sự kiện từ bài báo tiếng Việt cho đội vận hành mạng di động.
 Hôm nay là {today}. Bài đăng ngày {pub}. Chỉ quan tâm sự kiện sắp/đang diễn ra tại các tỉnh: {provinces}.
 Trả về DUY NHẤT một JSON (không markdown) với các khóa:
-is_event (bool: bài có nói về MỘT sự kiện/lễ hội cụ thể sắp hoặc đang diễn ra, tập trung đông người?),
+is_event (bool: bài nói về MỘT lễ hội/sự kiện văn hoá-nghệ thuật-âm nhạc-pháo hoa-hội chợ-triển lãm-thể thao quần chúng cụ thể, sắp hoặc đang diễn ra, tập trung đông người. KHÔNG phải: hội nghị, hội thảo, họp, tổng kết, đại hội, tập huấn, hội thi nghiệp vụ, tin chính trị/hành chính/pháp luật/quân sự/công an -> false),
 name (tên chính thức của sự kiện, bỏ các cụm như "sẵn sàng cho", "hoàn tất công tác chuẩn bị"), province (một trong: {keys}; là tỉnh nơi sự kiện DIỄN RA, nhận cả tên tỉnh cũ trước sáp nhập 2025: Kiên Giang→An Giang, Long An→Tây Ninh, Bến Tre/Trà Vinh→Vĩnh Long, Tiền Giang→Đồng Tháp, Sóc Trăng/Hậu Giang→Cần Thơ, Bạc Liêu→Cà Mau, Bình Dương/Bà Rịa-Vũng Tàu→TP.HCM, Bình Phước→Đồng Nai; sự kiện ở nơi khác thì null),
 venue (địa điểm cụ thể: tên nơi + phường/xã, hoặc ""), start_date (ngày BẮT ĐẦU sự kiện, YYYY-MM-DD hoặc null; không phải hạn chót chuẩn bị), end_date (YYYY-MM-DD hoặc null),
 start_time (HH:MM hoặc ""), crowd (số người dự kiến, số nguyên hoặc null), fireworks (bool), big_concert (bool: đại nhạc hội/countdown/concert lớn),

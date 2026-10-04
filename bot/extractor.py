@@ -6,18 +6,45 @@ from .geo import PROVINCES, normalize
 from .lunar import lunar_to_solar
 
 # ---------- Lọc tin liên quan ----------
-EVENT_KW = [
-    "le hoi", "festival", "dai nhac hoi", "concert", "liveshow", "live show", "phao hoa", "countdown",
-    "khai mac", "be mac", "hoi cho", "trien lam", "marathon", "giai chay", "giai dau", "via ba",
-    "cung dinh", "le cung", "ok om bok", "chol chnam thmay", "sen dolta", "le ky niem", "hoi nghi",
-    "hoi thao", "dem nhac", "dua ghe", "dua bo", "dua thuyen", "giao thua", "chao nam moi",
-    "carnival", "lien hoan", "tuan le van hoa", "dai le", "le roc", "vu lan", "trung thu",
-    "nghi le", "ky nghi", "tet nguyen dan", "nhac hoi", "tuan le du lich", "ngay hoi",
-    "su kien", "khai truong", "gala", "hoi thi", "hoi dien", "hoi xuan", "hoi hoa", "tuan le", "dem nghe thuat", "bieu dien", "tranh tai",
-    "giai vo dich", "giai the thao", "hoi dua", "mung dang", "ngay chay", "ngay hoi van hoa", "dem hoi", "khai hoi", "chuong trinh nghe thuat", "le dang huong",
+# Từ khoá MẠNH: bản thân đã là lễ hội/văn hoá/nghệ thuật/hội chợ... (tít có là nhận)
+STRONG_KW = [
+    "le hoi", "festival", "dai nhac hoi", "nhac hoi", "concert", "liveshow", "live show", "phao hoa", "countdown",
+    "hoi cho", "trien lam", "marathon", "giai chay", "via ba", "cung dinh", "le cung", "ok om bok",
+    "chol chnam thmay", "sen dolta", "dua ghe", "dua bo", "dua thuyen", "hoi dua", "giao thua", "chao nam moi",
+    "carnival", "lien hoan", "tuan le van hoa", "tuan le du lich", "dem nhac", "dem hoi", "khai hoi", "le roc",
+    "vu lan", "trung thu", "tet nguyen dan", "ngay hoi", "ngay hoi van hoa", "gala", "chuong trinh nghe thuat",
+    "dem nghe thuat", "le dang huong", "hoi xuan", "hoi hoa", "dai le", "cho hoa", "duong hoa",
 ]
+# Từ khoá YẾU: chỉ nhận khi tít có kèm dấu hiệu đông người (>= 2.000 người / pháo hoa / đại nhạc hội)
+WEAK_KW = [
+    "khai mac", "be mac", "su kien", "hoi thi", "hoi dien", "tuan le", "bieu dien", "tranh tai", "giai dau",
+    "giai the thao", "giai vo dich", "le ky niem", "khai truong", "mung dang", "ngay chay", "hoi thao",
+    "nghi le", "ky nghi",
+]
+EVENT_KW = STRONG_KW + WEAK_KW
+# Tin hành chính / họp hội / nghiệp vụ / không phải sự kiện văn hoá: loại theo tít
 NEG_KW = ["tai nan", "tu vong", "khoi to", "bat giu", "lua dao", "chung khoan", "gia vang",
-          "ngoai hang anh", "premier league", "champions league"]
+          "ngoai hang anh", "premier league", "champions league",
+          "hoi nghi", "hoi thao khoa hoc", "tong ket", "so ket", "ky hop", "dai hoi dang", "dai hoi dai bieu",
+          "dai hoi cong doan", "tap huan", "hoi thi tay nghe", "tu van vien", "phap luat", "chuyen doi so",
+          "hoi dong nhan dan", "bau cu", "huan luyen", "dien tap", "cong an", "quan su", "sinh hoat chuyen de",
+          "hoc tap", "bao cao vien", "tuyen truyen", "tuyen sinh", "thi tuyen", "ban giao", "ky ket",
+          "khoi cong", "cong bo quyet dinh", "trao quyet dinh", "kiem tra", "giam sat"]
+
+
+def strong_hits(text: str) -> list[str]:
+    n = f" {normalize(text)} "
+    return [k for k in STRONG_KW if f" {k} " in n]
+
+
+def is_cultural_event(title: str, body: str, crowd: int | None, fireworks: bool, concert: bool) -> bool:
+    """Chỉ giữ lễ hội/văn hoá/nghệ thuật/hội chợ/thể thao quần chúng. Loại tin hành chính, hội nghị, tập huấn..."""
+    if has_negative(title):
+        return False
+    if strong_hits(title) or strong_hits((body or "")[:800]):
+        return True
+    weak = any(f" {k} " in f" {normalize(title)} " for k in WEAK_KW)
+    return bool(weak and ((crowd or 0) >= 2000 or fireworks or concert))
 
 
 def event_keyword_hits(text: str) -> list[str]:
