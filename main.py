@@ -34,6 +34,7 @@ def main(argv=None) -> int:
     u = sub.add_parser("add-url", help="thêm tay một bài báo (link thường hoặc Google News) vào danh sách sự kiện")
     u.add_argument("url")
     sub.add_parser("enrich", help="tìm lại bài báo để bổ sung ngày/địa điểm cho các sự kiện còn thiếu")
+    sub.add_parser("prune-noise", help="xoá khỏi DB các tin không phải lễ hội/văn hoá/sự kiện")
     sub.add_parser("dedupe", help="gộp các sự kiện trùng đã lưu trong DB")
     d = sub.add_parser("digest", help="gửi bản tin 7 ngày tới")
     d.add_argument("--force", action="store_true", help="gửi lại dù hôm nay đã gửi")
@@ -56,7 +57,7 @@ def main(argv=None) -> int:
     from bot.db import DB
     from bot.exporter import export_excel
     from bot.llm import LLM
-    from bot.pipeline import _short, dedupe_existing, run_collect, run_digest
+    from bot.pipeline import _short, dedupe_existing, prune_noise, run_collect, run_digest
     from bot.runner import serve, tick
     from bot.telegram import Telegram
 
@@ -117,6 +118,10 @@ def main(argv=None) -> int:
         elif a.cmd == "enrich":
             from bot.enrich import enrich_events
             print(f"Đã bổ sung {enrich_events(db, llm, config.today(), force=True, limit=10)} sự kiện")
+        elif a.cmd == "prune-noise":
+            gone = prune_noise(db)
+            print("\n".join(gone) or "Không có tin nào cần xoá")
+            print(f"Đã xoá {len(gone)} tin không phải sự kiện")
         elif a.cmd == "dedupe":
             print(f"Đã gộp {dedupe_existing(db, llm)} sự kiện trùng")
         elif a.cmd == "digest":
