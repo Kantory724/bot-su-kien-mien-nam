@@ -2,6 +2,7 @@
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
 from . import config
@@ -189,20 +190,29 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []
+    t0 = time.monotonic()
+    deadline = t0 + config.collect_budget_sec()
 
-    for src in sources:
+    def _one(src):
         try:
-            got = fetch_source(src)
+            return src, fetch_source(src), None
+        except Exception as e:  # noqa - 1 nguồn hỏng không làm dừng cả lượt
+            return src, None, e
+
+    with ThreadPoolExecutor(max_workers=8) as ex:  # tải song song các nguồn: nhanh hơn nhiều so với lần lượt
+        results = list(ex.map(_one, sources))
+    for src, got, err in results:
+        if err is None:
             recovered = db.health_ok(src["id"], src["name"], len(got))
             items += got
             log.info("OK   %-28s %3d mục", src["id"], len(got))
             if recovered and tg:
                 tg.broadcast(f"✅ Nguồn đã hoạt động trở lại: {src['name']}", config.admin_ids())
-        except Exception as e:  # noqa - 1 nguồn hỏng không làm dừng cả lượt
+        else:
             stats["failed"] += 1
-            n = db.health_fail(src["id"], src["name"], _short(e))
-            log.error("LỖI %-28s (lần %d liên tiếp): %s", src["id"], n, _short(e))
-        time.sleep(0.3)
+            n = db.health_fail(src["id"], src["name"], _short(err))
+            log.error("LỖI %-28s (lần %d liên tiếp): %s", src["id"], n, _short(err))
+    log.info("Đã tải %d nguồn sau %.0fs", len(sources), time.monotonic() - t0)
 
     items.sort(key=lambda i: i.published or today, reverse=True)
     cap = config.max_article_fetch()
@@ -215,7 +225,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         if (not hits and not it.is_gnews) or has_negative(it.title):
             db.add_article(it.link, it.source_id, it.title, "skip")
             continue
-        if stats["fetched"] >= cap:
+        if stats["fetched"] >= cap or time.monotonic() > deadline:
             continue  # lượt sau xử lý tiếp, chưa đánh dấu đã xem
         body = fetch_article_text(it)
         stats["fetched"] += 1
@@ -230,13 +240,15 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         if not body and it.is_gnews and status in ("new", "merged", "dup"):
             status = "title_only"  # mới có tít: 6 giờ sau thử tải lại nội dung để bổ sung ngày/địa điểm
         db.add_article(it.link, it.source_id, it.title, status)
+        db.conn.commit()  # lưu ngay từng bài: lỡ job bị huỷ giữa chừng vẫn không mất tiến độ
     db.conn.commit()
     if llm:
         stats["llm"] = llm.calls
 
     try:  # từ tên sự kiện đã lưu, tìm lại bài báo (ưu tiên báo địa phương) để bổ sung ngày/địa điểm
         from .enrich import enrich_events
-        stats["enriched"] = enrich_events(db, llm, today)
+        if deadline - time.monotonic() > 60:
+            stats["enriched"] = enrich_events(db, llm, today)
     except Exception as e:  # noqa
         log.warning("Bước làm giàu lỗi: %s", _short(e))
 

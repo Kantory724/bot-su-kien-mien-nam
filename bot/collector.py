@@ -65,8 +65,8 @@ def _text(html: str) -> str:
     return re.sub(r"\s+", " ", BeautifulSoup(html or "", "html.parser").get_text(" ")).strip()
 
 
-def _get(url: str, headers: dict | None = None) -> requests.Response:
-    r = requests.get(url, headers=headers or HEADERS, timeout=TIMEOUT)
+def _get(url: str, headers: dict | None = None, timeout=TIMEOUT) -> requests.Response:
+    r = requests.get(url, headers=headers or HEADERS, timeout=timeout)
     r.raise_for_status()
     return r
 
@@ -163,17 +163,24 @@ def _heuristic_items(soup: BeautifulSoup, base: str, src: dict) -> list[Item]:
 def _fetch_auto(src: dict) -> list[Item]:
     urls = src.get("urls") or [src["url"]]
     items, seen, ok, last = [], set(), 0, None
+    deadline = time.monotonic() + 45  # tối đa 45 giây cho mỗi nguồn, tránh một trang chậm làm treo cả lượt
+    T = (5, 12)  # (kết nối, đọc)
     for u in urls:
+        if time.monotonic() > deadline:
+            last = last or RuntimeError("quá thời gian cho nguồn này")
+            break
         try:
-            r = _get(u)
+            r = _get(u, timeout=T)
             got: list[Item] = []
             if "xml" in r.headers.get("content-type", "").lower() or r.content[:120].lstrip().startswith(b"<?xml"):
                 got = _items_from_feed(src, r.content)  # chính URL này là một RSS
             else:
                 soup = BeautifulSoup(_decode_response(r), "html.parser")
                 for f in _find_feeds(soup, r.url)[:3]:
+                    if time.monotonic() > deadline:
+                        break
                     try:
-                        got += _items_from_feed(src, _get(f).content)
+                        got += _items_from_feed(src, _get(f, timeout=T).content)
                     except Exception:  # noqa - RSS hỏng thì bỏ qua, còn lấy link trên trang
                         continue
                 got += _heuristic_items(soup, r.url, src)
@@ -223,6 +230,7 @@ def _fetch_html(src: dict) -> list[Item]:
 _GN_CACHE: dict[str, str | None] = {}      # link gốc -> link bài thật (None = thất bại chắc chắn)
 _GN_COOLDOWN_UNTIL = 0.0                   # monotonic; > now nghĩa là đang nghỉ do bị giới hạn tốc độ
 _GN_LAST_CALL = 0.0
+_GN_FAILS = 0                              # số lần thất bại liên tiếp
 _GN_MIN_GAP = 0.8                          # giây giữa 2 lần gọi mạng tới Google
 
 
@@ -340,6 +348,9 @@ def resolve_gnews(url: str) -> str | None:
         return url  # đã là link thật
     if url in _GN_CACHE:
         return _GN_CACHE[url]
+    global _GN_FAILS, _GN_COOLDOWN_UNTIL
+    if time.monotonic() < _GN_COOLDOWN_UNTIL:
+        return None
     b64 = _gn_id(url)
     if not b64:
         # có thể là link dạng ?url=... hoặc redirect
@@ -352,14 +363,13 @@ def resolve_gnews(url: str) -> str | None:
     if real:
         _GN_CACHE[url] = real
         return real
-    if time.monotonic() < _GN_COOLDOWN_UNTIL:
-        return None  # đang nghỉ do 429: không cache để lượt sau thử lại
     err = None
     for attempt in range(2):
         try:
             real = _clean_real_url(_gn_via_batchexecute(b64))
             if real:
                 _GN_CACHE[url] = real
+                _GN_FAILS = 0
                 return real
         except Exception as e:  # noqa
             err = e
@@ -370,6 +380,11 @@ def resolve_gnews(url: str) -> str | None:
     if real:
         _GN_CACHE[url] = real
         return real
+    _GN_FAILS += 1
+    if _GN_FAILS >= 6:  # Google đang chặn/lỗi: nghỉ 10 phút thay vì thử từng link (mỗi link tốn vài giây)
+        _GN_COOLDOWN_UNTIL = time.monotonic() + 600
+        _GN_FAILS = 0
+        log.warning("Giải mã Google News thất bại liên tiếp - tạm nghỉ 10 phút, các bài này chỉ xử lý bằng tít")
     log.warning("Không giải mã được link Google News: %s", type(err).__name__ if err else "unknown")
     if time.monotonic() >= _GN_COOLDOWN_UNTIL:
         _GN_CACHE[url] = None  # thất bại thật sự (không phải do bị giới hạn) -> khỏi thử lại trong phiên

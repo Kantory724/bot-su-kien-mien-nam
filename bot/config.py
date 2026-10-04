@@ -90,7 +90,7 @@ def fail_threshold() -> int:
 
 
 def max_article_fetch() -> int:
-    return env_int("MAX_ARTICLE_FETCH", 80)
+    return env_int("MAX_ARTICLE_FETCH", 50)
 
 
 def enrich_max() -> int:
@@ -104,3 +104,8 @@ def enrich_budget_sec() -> int:
 
 def llm_max_calls() -> int:
     return env_int("LLM_MAX_CALLS", 30)
+
+
+def collect_budget_sec() -> int:
+    """Tổng thời gian tối đa cho một lượt thu thập (giây). Hết giờ thì dừng êm, phần còn lại để lượt sau xử lý."""
+    return env_int("COLLECT_BUDGET_SEC", 540)
