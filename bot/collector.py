@@ -1,6 +1,8 @@
 """Thu thập tin từ RSS / Google News / trang HTML và tải nội dung bài viết.
 
-Bản sửa: tự giải mã link Google News (không phụ thuộc hoàn toàn vào googlenewsdecoder):
+Bản sửa 2: thêm nguồn Bing News RSS (type bing_news). Link trong feed Bing chứa sẵn URL bài gốc (tham số url=)
+nên KHÔNG cần giải mã/gọi mạng thêm -> không bị Google chặn 429 khi chạy trên IP datacenter của GitHub Actions.
+Bản sửa 1: tự giải mã link Google News (không phụ thuộc hoàn toàn vào googlenewsdecoder):
   1) giải base64 (link kiểu cũ),
   2) gọi batchexecute của Google (link kiểu mới "AU_yqL..."), thử cả 2 dạng URL trang bài,
   3) dự phòng: thư viện googlenewsdecoder nếu có.
@@ -13,7 +15,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import feedparser
 import requests
@@ -41,6 +43,25 @@ class Item:
     province_hint: str | None = None
     is_gnews: bool = False
     trust_hint: bool = False  # nguồn báo địa phương: tin gợi ý tỉnh của nguồn khi tít/đoạn đầu không nhắc tên tỉnh
+    searched: bool = False    # kết quả từ truy vấn tìm kiếm theo chủ đề (Bing News): đã lọc chủ đề, không bắt buộc có từ khoá trong tít
+
+
+# ---------- Bing News RSS ----------
+BING_HEADERS = {"User-Agent": BROWSER_UA, "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.5"}
+
+
+def bing_rss_url(q: str) -> str:
+    return f"https://www.bing.com/news/search?q={quote(q)}&format=rss&mkt=vi-VN&setlang=vi&qft=sortbydate%3D%221%22"
+
+
+def bing_real_url(link: str) -> str:
+    """Link Bing News (apiclick.aspx?...&url=<URL bài gốc>&...) -> URL bài gốc. Không có tham số url thì giữ nguyên."""
+    try:
+        q = parse_qs(urlparse(link).query)
+        real = (q.get("url") or [""])[0]
+        return real if real.startswith("http") else link
+    except Exception:  # noqa
+        return link
 
 
 def load_sources(path=None) -> list[dict]:
@@ -56,6 +77,13 @@ def load_sources(path=None) -> list[dict]:
                 url = f"https://news.google.com/rss/search?q={quote(q)}&hl=vi&gl=VN&ceid=VN:vi"
                 out.append({"id": f'{s["id"]}-{key}', "name": f'{s["name"]} - {key}', "type": "rss",
                             "url": url, "province_hint": key, "is_gnews": True})
+        elif s["type"] == "bing_news":
+            # topics: một chuỗi hoặc DANH SÁCH nhóm từ khoá (mỗi nhóm một truy vấn ngắn, Bing giới hạn độ dài truy vấn)
+            topics = s["topics"] if isinstance(s["topics"], list) else [s["topics"]]
+            for key, region in (s.get("provinces") or {}).items():
+                for i, topic in enumerate(topics, 1):
+                    out.append({"id": f'{s["id"]}-{key}-{i}', "name": f'{s["name"]} - {key} #{i}', "type": "rss",
+                                "url": bing_rss_url(f"({topic}) ({region})"), "province_hint": key, "bing": True})
         else:
             out.append(s)
     return out
@@ -77,6 +105,8 @@ _TAIL_DATE = re.compile(r"\s+(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+\d+)?\s*$")
 def _items_from_feed(src: dict, content: bytes) -> list[Item]:
     feed = feedparser.parse(content)
     if not feed.entries:
+        if src.get("bing"):
+            return []  # truy vấn tìm kiếm có thể không ra kết quả: không phải lỗi nguồn
         raise RuntimeError(f"RSS không có mục nào (bozo={getattr(feed, 'bozo', '?')})")
     items = []
     cutoff = config.today() - timedelta(days=21)
@@ -89,9 +119,12 @@ def _items_from_feed(src: dict, content: bytes) -> list[Item]:
         link = e.get("link", "")
         if not link or not e.get("title"):
             continue
-        is_g = bool(src.get("is_gnews")) or "news.google.com" in link
+        bing = bool(src.get("bing"))
+        if bing:
+            link = bing_real_url(link)  # URL bài gốc có sẵn trong link Bing, không cần giải mã
+        is_g = (not bing) and (bool(src.get("is_gnews")) or "news.google.com" in link)
         items.append(Item(src["id"], src["name"], _text(e.title), link, "" if is_g else _text(e.get("summary", "")),
-                          pub, src.get("province_hint"), is_g, bool(src.get("local"))))
+                          pub, src.get("province_hint"), is_g, bool(src.get("local")), bing))
     return items
 
 
@@ -100,7 +133,7 @@ def fetch_source(src: dict) -> list[Item]:
         return _fetch_html(src)
     if src["type"] == "auto":
         return _fetch_auto(src)
-    r = _get(src["url"])
+    r = _get(src["url"], BING_HEADERS if src.get("bing") else None)
     return _items_from_feed(src, r.content)
 
 
@@ -497,3 +530,17 @@ def item_from_url(url: str) -> Item:
     if len(title) < 8:
         raise RuntimeError("Không đọc được tiêu đề bài")
     return Item("manual", "Thêm tay", title, real, "", config.today(), None, False)
+
+
+def bing_search(q: str, limit: int = 15) -> list[tuple[Item, str]]:
+    """Tìm tin trên Bing News (dùng cho enrich.py). Trả [(bài, URL bài gốc)]. Link đã là link thật, không cần giải mã."""
+    feed = feedparser.parse(_get(bing_rss_url(q), BING_HEADERS).content)
+    out = []
+    for e in feed.entries[:limit]:
+        if not e.get("link") or not e.get("title"):
+            continue
+        real = bing_real_url(e.link)
+        pub = datetime(*e.published_parsed[:6]).date() if e.get("published_parsed") else None
+        out.append((Item("enrich", "Bing News", _text(e.title), real, _text(e.get("summary", "")), pub, None, False,
+                         False, True), real))
+    return out

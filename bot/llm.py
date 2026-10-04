@@ -10,6 +10,8 @@ from . import config
 from .geo import PROVINCES, resolve_province
 
 log = logging.getLogger("llm")
+BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/124.0 Safari/537.36")
 DEFAULT_MODEL = {"gemini": "gemini-2.5-flash", "anthropic": "claude-haiku-4-5-20251001"}
 
 PROMPT = """Bạn trích xuất thông tin sự kiện từ bài báo tiếng Việt cho đội vận hành mạng di động.
@@ -62,6 +64,9 @@ class LLM:
         self.last_error = ""
         self.search_calls = 0
         self.disc_off = False
+        self._chunks: list[dict] = []          # nguồn web mà Gemini đã dùng (groundingChunks) của lần tìm gần nhất
+        self._supports: list[tuple[str, list[int]]] = []  # (đoạn văn bản, chỉ số nguồn hỗ trợ đoạn đó)
+        self._uri_cache: dict[str, str | None] = {}
 
     @property
     def enabled(self) -> bool:
@@ -107,6 +112,7 @@ class LLM:
     def _search_call(self, prompt: str) -> str | None:
         """Gọi Gemini kèm công cụ Google Search (đọc web trực tiếp, không phụ thuộc link Google News)."""
         self.search_calls += 1
+        self._chunks, self._supports = [], []
         try:
             r = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent",
@@ -115,8 +121,12 @@ class LLM:
                       "generationConfig": {"temperature": 0}},
                 timeout=120)
             r.raise_for_status()
-            parts = r.json()["candidates"][0]["content"]["parts"]
-            return "".join(p.get("text", "") for p in parts)
+            cand = r.json()["candidates"][0]
+            gm = cand.get("groundingMetadata") or {}
+            self._chunks = [(c.get("web") or {}) for c in (gm.get("groundingChunks") or [])]
+            self._supports = [((sp.get("segment") or {}).get("text", ""), list(sp.get("groundingChunkIndices") or []))
+                              for sp in (gm.get("groundingSupports") or [])]
+            return "".join(p.get("text", "") for p in cand["content"]["parts"])
         except requests.HTTPError as e:
             code = e.response.status_code if e.response is not None else 0
             log.warning("Gemini tìm kiếm lỗi HTTP %s: %s", code, (e.response.text[:200] if e.response is not None else ""))
@@ -127,6 +137,44 @@ class LLM:
         except Exception as e:  # noqa
             log.warning("Gemini tìm kiếm lỗi: %s", type(e).__name__)
             return None
+
+    def _resolve_uri(self, uri: str) -> str | None:
+        """Link grounding của Google (vertexaisearch...redirect) -> link bài gốc, chỉ bằng cách theo redirect HTTP
+        (không dùng batchexecute nên không bị chặn kiểu 429 như link Google News)."""
+        if uri in self._uri_cache:
+            return self._uri_cache[uri]
+        real = None
+        try:
+            r = requests.get(uri, allow_redirects=True, stream=True, timeout=8, headers={"User-Agent": BROWSER_UA})
+            final = r.url
+            r.close()
+            host = re.sub(r"^https?://", "", final).split("/")[0].lower()
+            if final.startswith("http") and "vertexaisearch" not in host and not host.endswith("google.com"):
+                real = final
+        except Exception:  # noqa
+            real = None
+        self._uri_cache[uri] = real
+        return real
+
+    def _sources_for(self, name: str, fallback: bool = False, limit: int = 2) -> list[str]:
+        """Link bài gốc hỗ trợ sự kiện `name` (theo groundingSupports). fallback=True: lấy các nguồn đầu tiên
+        (dùng khi cả lượt tìm chỉ nói về MỘT sự kiện)."""
+        key = (name or "").lower()[:25]
+        idx: list[int] = []
+        for text, ids in self._supports:
+            if key and key in text.lower():
+                idx += ids
+        if not idx and fallback:
+            idx = list(range(len(self._chunks)))
+        out: list[str] = []
+        for i in dict.fromkeys(idx):
+            uri = self._chunks[i].get("uri") if i < len(self._chunks) else None
+            real = self._resolve_uri(uri) if uri else None
+            if real and real not in out:
+                out.append(real)
+            if len(out) >= limit:
+                break
+        return out
 
     def discover(self, pkey: str, today: date, days: int = 21) -> list[dict] | None:
         """Hỏi Gemini (có Google Search) các sự kiện của một tỉnh trong `days` ngày tới. None = lỗi gọi."""
@@ -148,6 +196,7 @@ class LLM:
             if isinstance(raw, dict):
                 c = self._clean({**raw, "is_event": True, "province": pkey})
                 if c["name"] and c["start_date"]:
+                    c["sources"] = self._sources_for(c["name"])
                     out.append(c)
         return out
 
@@ -165,7 +214,10 @@ class LLM:
         if not isinstance(raw, dict):
             return None
         c = self._clean({**raw, "is_event": True, "province": pkey, "name": name})
-        return c if c["start_date"] else None
+        if not c["start_date"]:
+            return None
+        c["sources"] = self._sources_for(name, fallback=True)
+        return c
 
     def extract(self, title: str, body: str, pub: date | None, today: date) -> dict | None:
         if not self.enabled:

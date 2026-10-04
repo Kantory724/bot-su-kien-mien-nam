@@ -150,7 +150,8 @@ def ingest_ai(db: DB, d: dict, province: str, today: date) -> str:
         return "out_of_scope"
     ev = Event(name=name, province=province, venue=d["venue"] if valid_venue(d["venue"]) else "",
                start_date=d["start_date"], end_date=d["end_date"] or d["start_date"], start_time=d["start_time"],
-               crowd=d["crowd"], fireworks=d["fireworks"], big_concert=d["big_concert"], summary=d["summary"], sources=[])
+               crowd=d["crowd"], fireworks=d["fireworks"], big_concert=d["big_concert"], summary=d["summary"],
+               sources=list(d.get("sources") or []))  # link nguồn lấy từ grounding của Gemini (nếu có)
     if ev.last_date < today - timedelta(days=3):
         return "past"
     if ev.start_date > today + timedelta(days=75):
@@ -360,8 +361,8 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
             continue
         stats["items"] += 1
         hits = event_keyword_hits(f"{it.title} {it.summary}")
-        # Google News đã được lọc theo chủ đề ngay từ truy vấn -> không bắt buộc có từ khoá trong tít
-        if (not hits and not it.is_gnews) or has_negative(it.title):
+        # Google News / Bing News đã được lọc theo chủ đề ngay từ truy vấn -> không bắt buộc có từ khoá trong tít
+        if (not hits and not it.is_gnews and not it.searched) or has_negative(it.title):
             db.add_article(it.link, it.source_id, it.title, "skip")
             continue
         if stats["fetched"] >= cap or time.monotonic() > art_deadline:
