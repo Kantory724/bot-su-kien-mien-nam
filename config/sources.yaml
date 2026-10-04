@@ -114,7 +114,6 @@ sources:
     local: true
     urls:
       - "https://baoangiang.com.vn/"
-      - "https://baokiengiang.vn/"
   - id: dongthap-local
     name: "Báo Đồng Tháp / Ấp Bắc (Tiền Giang)"
     type: auto
