@@ -15,6 +15,9 @@ STRONG_KW = [
     "carnival", "lien hoan", "tuan le van hoa", "tuan le du lich", "dem nhac", "dem hoi", "khai hoi", "le roc",
     "vu lan", "trung thu", "tet nguyen dan", "ngay hoi", "ngay hoi van hoa", "gala", "chuong trinh nghe thuat",
     "dem nghe thuat", "le dang huong", "hoi xuan", "hoi hoa", "dai le", "cho hoa", "duong hoa",
+    # lễ hội truyền thống, tín ngưỡng (không cần quy mô)
+    "ky yen", "nghinh ong", "cau ngu", "le via", "via ba", "le hoi dinh", "cung dinh", "le cung dinh", "le ha dien",
+    "gio to", "le hoi chua", "le hoi den", "le hoi mieu", "hoi dinh", "le thanh minh", "le vu lan",
     # ngày lễ, Tết, kỳ nghỉ dài
     "nghi le", "ky nghi le", "dip le", "dip tet", "don tet", "quoc khanh", "gio to hung vuong",
     "tet duong lich", "tet trung thu", "tet am lich", "tet doan ngo",
@@ -336,7 +339,8 @@ def find_ward(text: str) -> str:
 # ---------- TÊN SỰ KIỆN (không phải tiêu đề bài báo) ----------
 # Hạng 0 = sự kiện "mẹ" (lễ hội, hội chợ...). Hạng 1 = sự kiện/hoạt động có thể nằm trong một sự kiện mẹ.
 _P0 = (r"Lễ\s+hội|Festival|Ngày\s+hội|Hội\s+chợ|Lễ\s+Vía|Vía\s+Bà|Ok\s+Om\s+Bok|Chol\s+Chnam\s+Thmay|"
-       r"Sen\s+Dolta|Lễ\s+Dolta|Lễ\s+cúng\s+Trăng|Lễ\s+Kỳ\s+Yên")
+       r"Sen\s+Dolta|Lễ\s+Dolta|Lễ\s+cúng\s+Trăng|Lễ\s+Kỳ\s+Yên|Lễ\s+Nghinh\s+Ông|Lễ\s+Cầu\s+Ngư|Lễ\s+Hạ\s+điền|"
+       r"Lễ\s+cúng\s+đình|Cúng\s+đình|Lễ\s+Giỗ\s+Tổ|Giỗ\s+Tổ|Lễ\s+Vu\s+Lan|Lễ\s+hội\s+Kỳ\s+Yên")
 _P1 = (r"Đại\s+nhạc\s+hội|Hội\s+đua|Hội\s+xuân|Hội\s+hoa|Liên\s+hoan|Tuần\s+lễ|Carnival|Countdown|"
        r"Marathon|Giải\s+chạy|Triển\s+lãm|Chợ\s+hoa|Đường\s+hoa|Đêm\s+hội|Lễ\s+rước|Lễ\s+đón|"
        r"Kỳ\s+nghỉ\s+lễ|Dịp\s+nghỉ\s+lễ|Nghỉ\s+lễ|Tết\s+Nguyên\s+đán|Tết\s+Dương\s+lịch|Tết\s+Trung\s+thu|"
