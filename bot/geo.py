@@ -133,3 +133,20 @@ def other_area_score(title: str, body: str = "") -> int:
     """Số lần nhắc tới nơi NGOÀI 8 tỉnh (tít tính x3), cùng thang điểm với score_provinces."""
     nt, nb = normalize(title), normalize(body)
     return sum(3 * len(p.findall(nt)) + len(p.findall(nb)) for p in _OTHER_PATS)
+
+
+# ---------- Sự kiện do đơn vị trong vùng tham gia nhưng DIỄN RA ở nơi khác (vd đoàn Cà Mau biểu diễn ở Hà Nội) ----------
+_OTHER_ALT = "|".join(sorted((re.escape(a) for a in OTHER_AREAS), key=len, reverse=True))
+_OWN_ALT = "|".join(sorted({re.escape(a) for k, (n, al) in PROVINCES.items() for a in al + [normalize(n)]},
+                           key=len, reverse=True))
+_PFX = r"(?<![a-z0-9])(?:tai|o|len|ra)\s+(?:thanh pho |tp |tinh )?"
+_AT_OTHER = re.compile(rf"{_PFX}(?:{_OTHER_ALT})(?![a-z0-9])"
+                       rf"|(?<![a-z0-9])(?:ngay hoi|le hoi|festival|tuan le|hoi cho|lien hoan|ngay van hoa)\s+"
+                       rf"(?:{_OTHER_ALT})(?![a-z0-9])")
+_AT_OWN = re.compile(rf"{_PFX}(?:{_OWN_ALT})(?![a-z0-9])")
+
+
+def held_elsewhere(title: str, lead: str) -> bool:
+    """Tít/đoạn đầu bài nói sự kiện diễn ra 'tại <nơi ngoài 8 tỉnh>' và không có 'tại <tỉnh trong vùng>'."""
+    t = normalize(f"{title}. {(lead or '')[:600]}")
+    return bool(_AT_OTHER.search(t)) and not _AT_OWN.search(t)

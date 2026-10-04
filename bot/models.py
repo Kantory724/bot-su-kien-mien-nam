@@ -10,7 +10,7 @@ SENSITIVE = ["san bay", "cang", "khu du lich", "quang truong", "san van dong", "
              "ben xe", "cong vien"]
 MID_KW = ["le hoi", "hoi cho", "trien lam", "marathon", "giai chay", "via ba", "ok om bok",
           "chol chnam thmay", "sen dolta", "khai mac", "festival", "le ky niem", "dua ghe",
-          "dua bo", "giao thua", "tet"]
+          "dua bo", "giao thua", "tet", "nghi le", "quoc khanh", "hoi nghi", "dien dan"]
 
 PRIORITY_LABEL = {"CAO": "CAO", "TB": "TB", "THAP": "THẤP"}
 PRIORITY_RANK = {"CAO": 0, "TB": 1, "THAP": 2}

@@ -15,18 +15,21 @@ STRONG_KW = [
     "carnival", "lien hoan", "tuan le van hoa", "tuan le du lich", "dem nhac", "dem hoi", "khai hoi", "le roc",
     "vu lan", "trung thu", "tet nguyen dan", "ngay hoi", "ngay hoi van hoa", "gala", "chuong trinh nghe thuat",
     "dem nghe thuat", "le dang huong", "hoi xuan", "hoi hoa", "dai le", "cho hoa", "duong hoa",
+    # ngày lễ, Tết, kỳ nghỉ dài
+    "nghi le", "ky nghi le", "dip le", "dip tet", "don tet", "quoc khanh", "gio to hung vuong",
+    "tet duong lich", "tet trung thu", "tet am lich", "tet doan ngo",
 ]
 # Từ khoá YẾU: chỉ nhận khi tít có kèm dấu hiệu đông người (>= 2.000 người / pháo hoa / đại nhạc hội)
 WEAK_KW = [
     "khai mac", "be mac", "su kien", "hoi thi", "hoi dien", "tuan le", "bieu dien", "tranh tai", "giai dau",
     "giai the thao", "giai vo dich", "le ky niem", "khai truong", "mung dang", "ngay chay", "hoi thao",
-    "nghi le", "ky nghi",
+    "ky nghi", "hoi nghi", "hoi thao", "dien dan", "san bay", "cang bien", "khu du lich",
 ]
 EVENT_KW = STRONG_KW + WEAK_KW
 # Tin hành chính / họp hội / nghiệp vụ / không phải sự kiện văn hoá: loại theo tít
 NEG_KW = ["tai nan", "tu vong", "khoi to", "bat giu", "lua dao", "chung khoan", "gia vang",
           "ngoai hang anh", "premier league", "champions league",
-          "hoi nghi", "hoi thao khoa hoc", "tong ket", "so ket", "ky hop", "dai hoi dang", "dai hoi dai bieu",
+          "hoi thao khoa hoc", "tong ket", "so ket", "ky hop", "dai hoi dang", "dai hoi dai bieu",
           "dai hoi cong doan", "tap huan", "hoi thi tay nghe", "tu van vien", "phap luat", "chuyen doi so",
           "hoi dong nhan dan", "bau cu", "huan luyen", "dien tap", "cong an", "quan su", "sinh hoat chuyen de",
           "hoc tap", "bao cao vien", "tuyen truyen", "tuyen sinh", "thi tuyen", "ban giao", "ky ket",
@@ -224,7 +227,7 @@ def find_time(text: str) -> str:
 # ---------- Quy mô ----------
 R_CROWD = re.compile(
     r"(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(nghìn|ngàn|triệu|vạn)?\s*"
-    r"(?:người|lượt khách|lượt du khách|lượt người|khán giả|du khách|vận động viên|vđv|thí sinh|tín đồ|khách)",
+    r"(?:lượt hành khách|hành khách|người|lượt khách|lượt du khách|lượt người|khán giả|du khách|vận động viên|vđv|thí sinh|tín đồ|khách)",
     re.I)
 R_CROWD_WORDS = re.compile(
     r"hàng\s+(chục\s+nghìn|chục\s+ngàn|vạn|trăm\s+nghìn|trăm\s+ngàn|triệu)\s*(?:người|lượt|khán giả|du khách|khách)", re.I)
@@ -289,7 +292,7 @@ def valid_venue(v: str) -> bool:
     """Chỉ nhận tên nơi chốn cụ thể (quảng trường, sân, chùa, phường/xã...), không nhận tên tỉnh/thành/quốc gia."""
     v = (v or "").strip(" ,:")
     n = normalize(v)
-    if len(v) < 3 or n in _PROV_NORM or n.startswith("ho chi minh"):
+    if len(v) < 3 or n in _PROV_NORM or n.startswith(("ho chi minh", "cong an", "ubnd", "uy ban", "quan doi", "bo chi huy")):
         return False
     return v.split()[0] in _VENUE_WORDS or n.startswith("trung tam") or bool(_VENUE_OK.search(v))
 
@@ -335,7 +338,9 @@ def find_ward(text: str) -> str:
 _P0 = (r"Lễ\s+hội|Festival|Ngày\s+hội|Hội\s+chợ|Lễ\s+Vía|Vía\s+Bà|Ok\s+Om\s+Bok|Chol\s+Chnam\s+Thmay|"
        r"Sen\s+Dolta|Lễ\s+Dolta|Lễ\s+cúng\s+Trăng|Lễ\s+Kỳ\s+Yên")
 _P1 = (r"Đại\s+nhạc\s+hội|Hội\s+đua|Hội\s+xuân|Hội\s+hoa|Liên\s+hoan|Tuần\s+lễ|Carnival|Countdown|"
-       r"Marathon|Giải\s+chạy|Triển\s+lãm|Chợ\s+hoa|Đường\s+hoa|Đêm\s+hội|Lễ\s+rước|Lễ\s+đón")
+       r"Marathon|Giải\s+chạy|Triển\s+lãm|Chợ\s+hoa|Đường\s+hoa|Đêm\s+hội|Lễ\s+rước|Lễ\s+đón|"
+       r"Kỳ\s+nghỉ\s+lễ|Dịp\s+nghỉ\s+lễ|Nghỉ\s+lễ|Tết\s+Nguyên\s+đán|Tết\s+Dương\s+lịch|Tết\s+Trung\s+thu|"
+       r"Quốc\s+khánh|Giỗ\s+Tổ\s+Hùng\s+Vương|Hội\s+nghị|Hội\s+thảo|Diễn\s+đàn")
 _RX0 = re.compile(rf"(?<!\w)(?:{_P0})(?!\w)", re.I)
 _RX1 = re.compile(rf"(?<!\w)(?:{_P1})(?!\w)", re.I)
 _STOP1 = set("""đã sẽ đang sắp tại ở trong với để nhằm từ vào lúc sau trước có được bị là đón hoặc của cùng như khi nơi

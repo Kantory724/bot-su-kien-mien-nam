@@ -11,7 +11,8 @@ from .db import DB
 from .extractor import (canonical_name, choose_date, event_name, event_keyword_hits, extract_rules, find_dates,
                         has_negative, is_cultural_event, is_prep_title, valid_venue)
 from .formatter import format_alert, format_digest
-from .geo import PROVINCES, detect_province, normalize, other_area_score, score_provinces, title_elsewhere
+from .geo import (PROVINCES, detect_province, held_elsewhere, normalize, other_area_score, score_provinces,
+                  title_elsewhere)
 from .llm import LLM
 from .models import Event
 from .telegram import Telegram
@@ -124,6 +125,16 @@ def dedupe_existing(db: DB, llm: LLM | None) -> int:
     return n
 
 
+def prune_elsewhere(db: DB) -> list[str]:
+    """Xoá các sự kiện đã lưu nhưng thực tế diễn ra ngoài 8 tỉnh (chạy một lần tự động)."""
+    gone = []
+    for e in db.all_events():
+        if held_elsewhere(e.name, e.summary):
+            db.delete_event(e.id)
+            gone.append(f"{e.start_date} | {e.name[:70]}")
+    return gone
+
+
 def prune_noise(db: DB) -> list[str]:
     """Xoá khỏi DB các 'sự kiện' không phải lễ hội/văn hoá cụ thể: tin hành chính, tin chung chung không có tên lễ hội,
     hoặc sự kiện ở ngoài 8 tỉnh (vd Hà Nội). Trả về danh sách đã xoá."""
@@ -136,6 +147,8 @@ def prune_noise(db: DB) -> list[str]:
             why = "không phải sự kiện văn hoá"
         elif not event_name(e.name, e.summary):
             why = "không có tên lễ hội cụ thể"
+        elif held_elsewhere(e.name, e.summary):
+            why = "diễn ra ngoài 8 tỉnh"
         elif other_area_score(head, e.summary) > own:
             why = "ngoài 8 tỉnh"
         if why:
@@ -152,6 +165,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
     text_all = f"{item.summary} {body}"
     # chỉ xét tít + phần đầu bài: nơi diễn ra sự kiện luôn nằm ở đó, tránh bài Hà Nội có nhắc TP.HCM ở cuối bài
     lead = text_all.strip()[:1500]
+    if held_elsewhere(item.title, lead):
+        return "out_of_scope"  # đơn vị trong vùng đi biểu diễn/giao lưu nơi khác (vd Hà Nội)
     # bài nhắc tới nơi NGOÀI 8 tỉnh nhiều hơn 8 tỉnh (vd tin Hà Nội đăng trên báo Vĩnh Long) -> không phải sự kiện của vùng này
     full = text_all.strip()[:4000]
     for seg in (lead, full):  # kiểm tra cả đoạn đầu lẫn toàn bài: nhắc Hà Nội/nơi khác nhiều hơn 8 tỉnh -> loại
@@ -177,8 +192,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
             if not ai["is_event"]:
                 return "not_event"
             ai_ok = True
-            if not ai["province"] and not strong:
-                return "out_of_scope"  # tỉnh chỉ do gợi ý của Google News, AI xác nhận không thuộc 8 tỉnh
+            if not ai["province"]:
+                return "out_of_scope"  # AI xác định sự kiện diễn ra ngoài 8 tỉnh -> tin AI hơn regex
             province = ai["province"] or province
             for k in ("name", "venue", "start_date", "end_date", "start_time", "crowd", "summary"):
                 if ai.get(k) and (k != "venue" or valid_venue(ai[k])):
@@ -232,6 +247,9 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     if db.get("fix_prep_v1") != "1":  # dọn một lần dữ liệu cũ bị nhận nhầm ngày chuẩn bị
         log.info("Dọn dữ liệu cũ: %d sự kiện đã gộp", dedupe_existing(db, None))
         db.set("fix_prep_v1", "1")
+    if db.get("fix_elsewhere_v1") != "1":  # dọn một lần: sự kiện diễn ra ngoài 8 tỉnh (vd Hà Nội)
+        log.info("Dọn sự kiện ngoài 8 tỉnh: %d", len(prune_elsewhere(db)))
+        db.set("fix_elsewhere_v1", "1")
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []
