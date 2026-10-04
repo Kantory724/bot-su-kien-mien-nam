@@ -113,12 +113,17 @@ def collect_budget_sec() -> int:
 
 def llm_search_max() -> int:
     """Số lần gọi Gemini có Google Search tối đa mỗi lượt thu thập (tìm sự kiện + tra ngày/địa điểm)."""
-    return env_int("LLM_SEARCH_MAX", 8)
+    return env_int("LLM_SEARCH_MAX", 24)
 
 
 def lookup_max() -> int:
     return env_int("LOOKUP_MAX", 4)
 
 
+def discover_every_hours() -> int:
+    """Khoảng cách tối thiểu giữa hai lần hỏi Gemini+Google Search về cùng một tỉnh."""
+    return env_int("DISCOVER_EVERY_HOURS", 8)
+
+
 def discover_provinces_per_run() -> int:
-    return env_int("DISCOVER_PER_RUN", 2)
+    return env_int("DISCOVER_PER_RUN", 8)

@@ -2,6 +2,7 @@
 import logging
 import re
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
@@ -207,28 +208,54 @@ def ingest_ai(db: DB, d: dict, province: str, today: date) -> str:
     return "new"
 
 
-def run_discover(db: DB, llm: LLM | None, today: date, deadline: float) -> int:
-    """Mỗi lượt hỏi Gemini+Google Search về vài tỉnh (tỉnh nào lâu chưa hỏi nhất trước, mỗi tỉnh >= 12 giờ/lần)."""
+# Mỗi tỉnh hỏi Gemini 2 lần với 2 trọng tâm khác nhau: hỏi chung một câu thì mô hình hay bỏ sót nhóm này khi nhóm kia nhiều tin
+DISCOVER_FOCUS = (
+    "lễ hội truyền thống/tín ngưỡng: vía, cúng đình, kỳ yên, lễ giỗ, Ok Om Bok, Sene Dolta, Chol Chnam Thmay, Nghinh Ông, "
+    "đua bò/đua ghe, lễ hội chùa/đền/đình/miếu, lễ hội của đồng bào Khmer/Hoa/Chăm",
+    "sự kiện văn hóa/du lịch/kỷ niệm/khai mạc cấp tỉnh; thể thao, marathon; ca nhạc, đại nhạc hội, pháo hoa, countdown; "
+    "hội chợ, triển lãm, hội nghị lớn; sự kiện tại sân bay/cảng/khu du lịch đông khách; kỳ nghỉ lễ/Tết",
+)
+
+
+def run_discover(db: DB, llm: LLM | None, today: date, deadline: float) -> tuple[int, Counter]:
+    """Mỗi lượt hỏi Gemini+Google Search về các tỉnh (tỉnh nào lâu chưa hỏi nhất trước, mỗi tỉnh cách nhau
+    DISCOVER_EVERY_HOURS giờ). Trả (số sự kiện mới, thống kê kết quả xử lý)."""
+    tally: Counter = Counter()
     if not llm or not llm.can_search():
-        return 0
+        return 0, tally
     now, new, done = config.now(), 0, 0
+    gap = timedelta(hours=config.discover_every_hours())
     for k in sorted(PROVINCES, key=lambda k: db.get(f"disc_{k}", "")):
         if done >= config.discover_provinces_per_run() or deadline - time.monotonic() < 45 or not llm.can_search():
             break
         last = db.get(f"disc_{k}")
-        if last and now - datetime.fromisoformat(last) < timedelta(hours=12):
+        if last and now - datetime.fromisoformat(last) < gap:
             break  # đã xếp theo thời điểm cũ nhất; các tỉnh còn lại đều mới hỏi
-        res = llm.discover(k, today)
-        if res is None:
-            break  # lỗi gọi (hết hạn mức...) - thử lại lượt sau
+        ok_all, found = True, 0
+        for focus in DISCOVER_FOCUS:
+            if not llm.can_search() or deadline - time.monotonic() < 30:
+                ok_all = False
+                break
+            res = llm.discover(k, today, focus=focus)
+            if res is None:
+                ok_all = False  # lỗi gọi (hết hạn mức...) - thử lại lượt sau
+                break
+            found += len(res)
+            for d in res:
+                st = ingest_ai(db, d, k, today)
+                tally[st] += 1
+                if st == "new":
+                    new += 1
+                elif st not in ("merged", "dup"):
+                    log.info("AI %s: bỏ '%s' (%s)", k, d["name"][:60], st)  # để biết sự kiện bị loại vì lý do gì
+            time.sleep(2)
+        if not ok_all and not found:
+            break
+        if ok_all:
+            db.set(f"disc_{k}", now.isoformat(timespec="seconds"))
         done += 1
-        for d in res:
-            if ingest_ai(db, d, k, today) == "new":
-                new += 1
-        db.set(f"disc_{k}", now.isoformat(timespec="seconds"))
-        log.info("AI tìm kiếm %s: %d sự kiện", k, len(res))
-        time.sleep(2)
-    return new
+        log.info("AI tìm kiếm %s: %d sự kiện", k, found)
+    return new, tally
 
 
 def prune_foreign(db: DB) -> list[str]:
@@ -378,7 +405,7 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     items: list[Item] = []
     t0 = time.monotonic()
     deadline = t0 + config.collect_budget_sec()
-    art_deadline = deadline - min(90, config.collect_budget_sec() // 3)  # chừa thời gian cho tìm kiếm AI + làm giàu
+    art_deadline = deadline - min(240, config.collect_budget_sec() // 2)  # chừa thời gian cho tìm kiếm AI (16 lượt hỏi) + làm giàu
 
     def _one(src):
         try:
@@ -436,8 +463,9 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     stats["gn"] = dict(GN_STATS)
 
     try:
-        stats["discovered"] = run_discover(db, llm, today, deadline)
-        db.set("last_discover", f"{config.now().isoformat(timespec='seconds')}: thêm {stats['discovered']} sự kiện")
+        stats["discovered"], tally = run_discover(db, llm, today, deadline)
+        db.set("last_discover", f"{config.now().isoformat(timespec='seconds')}: thêm {stats['discovered']} sự kiện"
+               + (" (" + ", ".join(f"{k}={v}" for k, v in tally.items()) + ")" if tally else ""))
     except Exception as e:  # noqa
         log.warning("Bước tìm kiếm AI lỗi: %s", _short(e))
 

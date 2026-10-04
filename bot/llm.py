@@ -40,8 +40,9 @@ OLD_NAMES = {"hcm": "Bình Dương, Bà Rịa - Vũng Tàu", "dongnai": "Bình P
              "cantho": "Sóc Trăng, Hậu Giang", "camau": "Bạc Liêu"}
 
 DISCOVER_PROMPT = """Hôm nay là {today}. Dùng Google Search tìm các sự kiện SẮP HOẶC ĐANG diễn ra từ {a} đến {b} tại {name} (sau sáp nhập 2025, gồm cả {old}).
-Loại sự kiện: lễ hội truyền thống/tín ngưỡng (vía, cúng đình, Ok Om Bok, Sene Dolta, Nghinh Ông, Giỗ...), sự kiện văn hóa/du lịch/kỷ niệm/khai mạc cấp tỉnh,
-thể thao/marathon/ca nhạc/đại nhạc hội/pháo hoa/countdown, hội chợ/triển lãm/hội nghị lớn, sự kiện tại sân bay/cảng/khu du lịch đông khách, kỳ nghỉ lễ/Tết.
+Trọng tâm lần tìm này: {focus}
+Tìm kỹ trên báo địa phương, cổng UBND/Sở VHTTDL, fanpage ban tổ chức; liệt kê ĐẦY ĐỦ, không bỏ sót. Lễ hội chung của nhiều tỉnh
+(vd lễ Sene Dolta của người Khmer, lễ giỗ Nguyễn Trung Trực) vẫn nêu nếu có hoạt động tổ chức tại {name}. Ngày âm lịch phải đổi sang dương lịch.
 Chỉ nêu sự kiện DIỄN RA tại {name} (không phải đoàn của tỉnh này đi biểu diễn nơi khác) và có ngày rõ ràng trong nguồn. Không bịa.
 Trả về DUY NHẤT một mảng JSON (không markdown, không giải thích). Mỗi phần tử có các khóa:
 name (tên lễ hội/sự kiện, ngắn gọn), venue (địa điểm cụ thể + phường/xã, hoặc ""), start_date (YYYY-MM-DD), end_date (YYYY-MM-DD),
@@ -176,14 +177,15 @@ class LLM:
                 break
         return out
 
-    def discover(self, pkey: str, today: date, days: int = 21) -> list[dict] | None:
+    def discover(self, pkey: str, today: date, days: int = 21, focus: str = "") -> list[dict] | None:
         """Hỏi Gemini (có Google Search) các sự kiện của một tỉnh trong `days` ngày tới. None = lỗi gọi."""
         from datetime import timedelta
         if not self.can_search():
             return None
         txt = self._search_call(DISCOVER_PROMPT.format(
             today=today.isoformat(), a=today.strftime("%d/%m/%Y"), b=(today + timedelta(days=days)).strftime("%d/%m/%Y"),
-            name=PROVINCES[pkey][0], old=OLD_NAMES.get(pkey, "")))
+            name=PROVINCES[pkey][0], old=OLD_NAMES.get(pkey, ""),
+            focus=focus or "mọi loại lễ hội, sự kiện văn hóa, thể thao, ca nhạc, hội chợ, kỳ nghỉ lễ"))
         if txt is None:
             return None
         m = re.search(r"\[.*\]", txt, re.S)
