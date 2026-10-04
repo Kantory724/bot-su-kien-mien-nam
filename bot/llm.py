@@ -40,11 +40,23 @@ class LLM:
         self.model = config.env("LLM_MODEL") or DEFAULT_MODEL.get(self.provider, "")
         self.calls = 0
         self.disabled = False
+        self.last_error = ""
 
     @property
     def enabled(self) -> bool:
         return bool(self.provider in DEFAULT_MODEL and self.key and not self.disabled
                     and self.calls < config.llm_max_calls())
+
+    def status(self) -> str:
+        if not self.provider:
+            return "TẮT - chưa có secret LLM_PROVIDER"
+        if self.provider not in DEFAULT_MODEL:
+            return f"TẮT - LLM_PROVIDER='{self.provider}' không hợp lệ (cần gemini hoặc anthropic)"
+        if not self.key:
+            return "TẮT - chưa có secret LLM_API_KEY"
+        if self.disabled:
+            return f"TỰ TẮT do bị từ chối/hết hạn mức ({self.last_error}); đã gọi {self.calls}"
+        return f"BẬT ({self.provider}/{self.model}), đã gọi {self.calls}/{config.llm_max_calls()}"
 
     def _call(self, prompt: str) -> str:
         if self.provider == "gemini":
@@ -78,6 +90,7 @@ class LLM:
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code in (401, 403, 429):
                 log.warning("LLM từ chối (%s) - tắt LLM trong phiên này", e.response.status_code)
+                self.last_error = f"HTTP {e.response.status_code}"
                 self.disabled = True
             else:
                 log.warning("LLM lỗi HTTP: %s", type(e).__name__)
@@ -96,6 +109,7 @@ class LLM:
             return bool(json.loads(re.search(r"\{.*\}", txt, re.S).group(0)).get("same"))
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code in (401, 403, 429):
+                self.last_error = f"HTTP {e.response.status_code}"
                 self.disabled = True
             return None
         except Exception:  # noqa

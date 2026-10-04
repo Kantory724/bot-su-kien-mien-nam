@@ -265,6 +265,12 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     if db.get("fix_foreign_v1") != "1":
         log.info("Dọn sự kiện ngoại ngữ: %d", len(prune_foreign(db)))
         db.set("fix_foreign_v1", "1")
+    if llm:
+        log.info("AI: %s", llm.status())
+        if llm.enabled and db.get("fix_llm_v1") != "1":  # bật AI lần đầu: cho AI xét lại các bài regex từng loại/chỉ có tít
+            db.conn.execute("DELETE FROM articles WHERE status IN ('not_event','title_only','no_body')")
+            db.conn.commit()
+            db.set("fix_llm_v1", "1")
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []
@@ -323,8 +329,6 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     from .collector import GN_STATS
     db.set("last_gn", f"giải mã được {GN_STATS['ok']}, thất bại {GN_STATS['fail']}")
     stats["gn"] = dict(GN_STATS)
-    if llm:
-        stats["llm"] = llm.calls
 
     try:  # từ tên sự kiện đã lưu, tìm lại bài báo (ưu tiên báo địa phương) để bổ sung ngày/địa điểm
         from .enrich import enrich_events
@@ -333,6 +337,9 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     except Exception as e:  # noqa
         log.warning("Bước làm giàu lỗi: %s", _short(e))
 
+    if llm:
+        stats["llm"] = llm.calls
+        db.set("llm_state", llm.status())
     notify_source_failures(db, tg)
     if tg:
         send_alerts(db, tg)
