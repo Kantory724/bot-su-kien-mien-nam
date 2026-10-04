@@ -16,7 +16,7 @@ STRONG_KW = [
     "vu lan", "trung thu", "tet nguyen dan", "ngay hoi", "ngay hoi van hoa", "gala", "chuong trinh nghe thuat",
     "dem nghe thuat", "le dang huong", "hoi xuan", "hoi hoa", "dai le", "cho hoa", "duong hoa",
     # lễ hội truyền thống, tín ngưỡng (không cần quy mô)
-    "sene dolta", "sene dolta", "don ta", "sen don ta", "cung ong ba", "ky yen", "nghinh ong", "cau ngu", "le via", "via ba", "le hoi dinh", "cung dinh", "le cung dinh", "le ha dien",
+    "ooc om boc", "sene dolta", "don ta", "sen don ta", "cung ong ba", "ky yen", "nghinh ong", "cau ngu", "le via", "via ba", "le hoi dinh", "cung dinh", "le cung dinh", "le ha dien",
     "gio to", "le hoi chua", "le hoi den", "le hoi mieu", "hoi dinh", "le thanh minh", "le vu lan",
     # ngày lễ, Tết, kỳ nghỉ dài
     "nghi le", "ky nghi le", "dip le", "dip tet", "don tet", "quoc khanh", "gio to hung vuong",
@@ -339,7 +339,7 @@ def find_ward(text: str) -> str:
 # ---------- TÊN SỰ KIỆN (không phải tiêu đề bài báo) ----------
 # Hạng 0 = sự kiện "mẹ" (lễ hội, hội chợ...). Hạng 1 = sự kiện/hoạt động có thể nằm trong một sự kiện mẹ.
 _P0 = (r"Lễ\s+hội|Festival|Ngày\s+hội|Hội\s+chợ|Lễ\s+Vía|Vía\s+Bà|Ok\s+Om\s+Bok|Chol\s+Chnam\s+Thmay|"
-       r"Sene?\s+Dolta|Sen\s+Đôn\s+Ta|Đôn\s+Ta|Lễ\s+cúng\s+Ông\s+Bà|Lễ\s+Dolta|Lễ\s+cúng\s+Trăng|Lễ\s+Kỳ\s+Yên|Lễ\s+Nghinh\s+Ông|Lễ\s+Cầu\s+Ngư|Lễ\s+Hạ\s+điền|"
+       r"Óoc\s+Om\s+Bóc|Sene?\s+Dolta|Sen\s+Đôn\s+Ta|Đôn\s+Ta|Lễ\s+cúng\s+Ông\s+Bà|Lễ\s+Dolta|Lễ\s+cúng\s+Trăng|Lễ\s+Kỳ\s+Yên|Lễ\s+Nghinh\s+Ông|Lễ\s+Cầu\s+Ngư|Lễ\s+Hạ\s+điền|"
        r"Lễ\s+cúng\s+đình|Cúng\s+đình|Lễ\s+Giỗ\s+Tổ|Giỗ\s+Tổ|Lễ\s+Vu\s+Lan|Lễ\s+hội\s+Kỳ\s+Yên")
 _P1 = (r"Đại\s+nhạc\s+hội|Hội\s+đua|Hội\s+xuân|Hội\s+hoa|Liên\s+hoan|Tuần\s+lễ|Carnival|Countdown|"
        r"Marathon|Giải\s+chạy|Triển\s+lãm|Chợ\s+hoa|Đường\s+hoa|Đêm\s+hội|Lễ\s+rước|Lễ\s+đón|"
@@ -397,7 +397,7 @@ def _name_from(text: str, start: int) -> str:
     return " ".join(out).strip(" ,;-–—")
 
 
-_PROPER_KW = {"sene dolta", "sen dolta", "sen don ta", "don ta", "ok om bok", "chol chnam thmay", "lop"}
+_PROPER_KW = {"sene dolta", "sen dolta", "sen don ta", "don ta", "ok om bok", "ooc om boc", "chol chnam thmay", "lop"}
 
 
 def _cap_after_kw(n: str, kw: str) -> bool:
@@ -476,7 +476,7 @@ _T2 = ["giai chay", "marathon", "trien lam", "dem nhac", "concert", "liveshow", 
 _TAIL_STOP = {"tai", "o", "trong", "dien", "se", "sap", "khai", "mac", "be", "don", "voi", "de", "nham", "tu", "vao",
               "luc", "va", "cua", "cho", "dang", "da", "duoc", "co", "la", "gom", "hang", "gan", "hon", "khoang",
               "ngay", "thang", "lon", "nhat", "hoanh", "chuan", "quy", "tung", "bung", "ron", "nhon", "tuy", "nhu",
-              "mang", "hap", "ket", "thanh", "dau", "chinh", "bat", "so", "toi", "den", "sang", "tiep"}
+              "mang", "hap", "ket", "dau", "chinh", "bat", "so", "toi", "den", "sang", "tiep"}
 _DASH = {"-", "–", "—", "|"}
 _PUNCT = "\"'“”‘’()[]{} ,.;:!?-–—"
 
@@ -486,7 +486,7 @@ def _extend(tokens: list[str], nt: list[str], i: int, L: int) -> list[str]:
     if tokens[i + L - 1][-1:] in ",;:!?":
         return out
     j, n_all = i + L, len(tokens)
-    while j < n_all and len(out) < 11:
+    while j < n_all and len(out) < 13:
         t, n = tokens[j], nt[j]
         if t in _DASH or t.startswith("("):
             break
@@ -525,7 +525,7 @@ def _extend(tokens: list[str], nt: list[str], i: int, L: int) -> list[str]:
 
 
 def _finalize(parts: list[str]) -> str:
-    s = re.sub(r"\s+", " ", " ".join(parts)).strip(_PUNCT)
+    s = re.sub(r"\s+", " ", re.sub("[“”\"‘’']", "", " ".join(parts))).strip(_PUNCT)
     return (s[:1].upper() + s[1:]) if s else ""
 
 
@@ -623,3 +623,14 @@ def extract_rules(title: str, body: str, pub: date | None, ref: date) -> dict:
         "big_concert": has_big_concert(full),
         "summary": make_summary(body or title),
     }
+
+
+# ---------- Lọc bài không phải tiếng Việt (Google News đôi khi trả bài tiếng Pháp/Tây Ban Nha...) ----------
+_VN_ONLY = set("ăđơưạảặẳẵậẩẫẹẻẽệểễịỉĩọỏộổỗợởỡụủũựửữỵỷỹầấằắềếồốờớừứ"
+               "ĂĐƠƯẠẢẶẲẴẬẨẪẸẺẼỆỂỄỊỈĨỌỎỘỔỖỢỞỠỤỦŨỰỬỮỴỶỸẦẤẰẮỀẾỒỐỜỚỪỨ")
+
+
+def not_vietnamese(text: str) -> bool:
+    """Chuỗi đủ dài mà không có ký tự đặc trưng tiếng Việt nào -> coi là bài ngoại ngữ."""
+    t = (text or "").strip()
+    return len(t) >= 30 and not any(c in _VN_ONLY for c in t)

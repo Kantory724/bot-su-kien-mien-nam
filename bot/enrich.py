@@ -17,7 +17,7 @@ from .models import Event
 from .pipeline import STOP, _desc, _tokens, merge_into
 
 log = logging.getLogger("enrich")
-MAX_TRIES = 4
+MAX_TRIES = 8
 RETRY_AFTER = timedelta(hours=6)
 GNEWS = "https://news.google.com/rss/search?q={q}&hl=vi&gl=VN&ceid=VN:vi"
 

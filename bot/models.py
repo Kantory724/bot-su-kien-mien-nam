@@ -13,7 +13,7 @@ MID_KW = ["le hoi", "hoi cho", "trien lam", "marathon", "giai chay", "via ba", "
           "dua bo", "giao thua", "tet", "ky yen", "nghinh ong", "cau ngu", "le via", "cung dinh", "gio to", "vu lan", "nghi le", "quoc khanh", "hoi nghi", "dien dan"]
 
 # Lễ hội truyền thống / tín ngưỡng: không cần quy mô (ẩn số người nhỏ, luôn tối thiểu mức TB)
-TRADITIONAL_KW = ["via ba", "ba chua xu", "ok om bok", "chol chnam thmay", "sen dolta", "ky yen", "nghinh ong", "cau ngu",
+TRADITIONAL_KW = ["ooc om boc", "kate", "dieu tri cung", "trung thu", "trang ram", "via ba", "ba chua xu", "ok om bok", "chol chnam thmay", "sen dolta", "ky yen", "nghinh ong", "cau ngu",
                   "cung dinh", "le via", "gio to", "vu lan", "le hoi dinh", "le hoi chua", "le hoi den", "le hoi mieu",
                   "le dang huong", "le roc", "dua ghe", "dua bo", "hoi dua", "le ha dien", "le thanh minh",
                   "nguyen trung truc", "nguyen dinh chieu", "thoai ngoc hau", "tran hung dao", "ba den", "quan the am",

@@ -9,7 +9,7 @@ from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
 from .extractor import (canonical_name, choose_date, event_name, event_keyword_hits, extract_rules, find_dates,
-                        has_negative, is_cultural_event, is_prep_title, valid_venue)
+                        has_negative, is_cultural_event, is_prep_title, not_vietnamese, valid_venue)
 from .formatter import format_alert, format_digest
 from .geo import (PROVINCES, detect_province, held_elsewhere, normalize, other_area_score, score_provinces,
                   title_elsewhere)
@@ -135,6 +135,16 @@ def prune_elsewhere(db: DB) -> list[str]:
     return gone
 
 
+def prune_foreign(db: DB) -> list[str]:
+    """Xoá sự kiện đã lưu từ bài ngoại ngữ (chạy một lần tự động)."""
+    gone = []
+    for e in db.all_events():
+        if not_vietnamese(f"{e.name} {e.summary}"):
+            db.delete_event(e.id)
+            gone.append(e.name[:70])
+    return gone
+
+
 def prune_noise(db: DB) -> list[str]:
     """Xoá khỏi DB các 'sự kiện' không phải lễ hội/văn hoá cụ thể: tin hành chính, tin chung chung không có tên lễ hội,
     hoặc sự kiện ở ngoài 8 tỉnh (vd Hà Nội). Trả về danh sách đã xoá."""
@@ -162,6 +172,8 @@ def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
     if title_elsewhere(item.title):
         return "out_of_scope"  # tít nói về nơi ngoài 8 tỉnh
+    if not_vietnamese(item.title) or not_vietnamese(f"{item.summary} {body}"[:300]):
+        return "not_event"  # bài ngoại ngữ
     text_all = f"{item.summary} {body}"
     # chỉ xét tít + phần đầu bài: nơi diễn ra sự kiện luôn nằm ở đó, tránh bài Hà Nội có nhắc TP.HCM ở cuối bài
     lead = text_all.strip()[:1500]
@@ -250,6 +262,9 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
     if db.get("fix_elsewhere_v1") != "1":  # dọn một lần: sự kiện diễn ra ngoài 8 tỉnh (vd Hà Nội)
         log.info("Dọn sự kiện ngoài 8 tỉnh: %d", len(prune_elsewhere(db)))
         db.set("fix_elsewhere_v1", "1")
+    if db.get("fix_foreign_v1") != "1":
+        log.info("Dọn sự kiện ngoại ngữ: %d", len(prune_foreign(db)))
+        db.set("fix_foreign_v1", "1")
     sources = load_sources()
     stats = {"sources": len(sources), "failed": 0, "items": 0, "new": 0, "merged": 0, "fetched": 0, "llm": 0}
     items: list[Item] = []
@@ -305,6 +320,9 @@ def run_collect(db: DB, tg: Telegram | None, llm: LLM | None = None) -> dict:
         db.add_article(it.link, it.source_id, it.title, status)
         db.conn.commit()  # lưu ngay từng bài: lỡ job bị huỷ giữa chừng vẫn không mất tiến độ
     db.conn.commit()
+    from .collector import GN_STATS
+    db.set("last_gn", f"giải mã được {GN_STATS['ok']}, thất bại {GN_STATS['fail']}")
+    stats["gn"] = dict(GN_STATS)
     if llm:
         stats["llm"] = llm.calls
 

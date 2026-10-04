@@ -95,7 +95,7 @@ def max_article_fetch() -> int:
 
 def enrich_max() -> int:
     """Số sự kiện tối đa được tìm lại bài báo trong mỗi lượt thu thập."""
-    return env_int("ENRICH_MAX", 6)
+    return env_int("ENRICH_MAX", 10)
 
 
 def enrich_budget_sec() -> int:

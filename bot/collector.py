@@ -342,7 +342,7 @@ def _clean_real_url(u: str) -> str | None:
     return u.strip()
 
 
-def resolve_gnews(url: str) -> str | None:
+def _resolve_gnews_impl(url: str) -> str | None:
     """Link Google News -> link bài báo gốc. None nếu không giải mã được (có cache)."""
     if "news.google.com" not in url:
         return url  # đã là link thật
@@ -389,6 +389,16 @@ def resolve_gnews(url: str) -> str | None:
     if time.monotonic() >= _GN_COOLDOWN_UNTIL:
         _GN_CACHE[url] = None  # thất bại thật sự (không phải do bị giới hạn) -> khỏi thử lại trong phiên
     return None
+
+
+GN_STATS = {"ok": 0, "fail": 0}
+
+
+def resolve_gnews(url: str) -> str | None:
+    real = _resolve_gnews_impl(url)
+    if "news.google.com" in url:
+        GN_STATS["ok" if real else "fail"] += 1
+    return real
 
 
 _resolve_gnews = resolve_gnews  # tên cũ, enrich.py vẫn import tên này

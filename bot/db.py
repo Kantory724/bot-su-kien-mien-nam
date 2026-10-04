@@ -177,6 +177,8 @@ class DB:
         cut = (config.today() - timedelta(days=90)).isoformat()
         self.conn.execute("DELETE FROM articles WHERE seen_at < ?", (cut,))
         self.conn.execute("DELETE FROM events WHERE COALESCE(end_date,start_date,substr(first_seen,1,10)) < ?", (cut,))
+        cut30 = (config.today() - timedelta(days=30)).isoformat()
+        self.conn.execute("DELETE FROM events WHERE start_date IS NULL AND substr(first_seen,1,10) < ?", (cut30,))
         self.conn.commit()
 
     # ---- sức khoẻ nguồn ----
