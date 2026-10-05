@@ -38,13 +38,13 @@ def export_excel(db: DB, period: str = "week", out: str | None = None, today: da
     for e in events:
         ws.append([e.start_date, e.last_date, e.start_time, province_name(e.province), e.name, e.venue,
                    e.shown_crowd, "Có" if e.fireworks else "", "Có" if e.big_concert else "",
-                   PRIORITY_LABEL[e.priority], e.summary, e.sources[0] if e.sources else ""])
+                   PRIORITY_LABEL[e.priority], e.summary, e.main_source])
         row = ws.max_row
         ws.cell(row, 10).fill = PatternFill("solid", fgColor=FILL[e.priority])
         for col in (1, 2):
             ws.cell(row, col).number_format = "DD/MM/YYYY"
         if e.sources:
-            ws.cell(row, 12).hyperlink = e.sources[0]
+            ws.cell(row, 12).hyperlink = e.main_source
             ws.cell(row, 12).font = Font(color="0563C1", underline="single")
         ws.cell(row, 7).number_format = "#,##0"
     for i, w in enumerate([12, 12, 7, 16, 48, 36, 14, 9, 12, 11, 60, 50], 1):

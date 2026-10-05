@@ -348,7 +348,7 @@ _P1 = (r"Đại\s+nhạc\s+hội|Hội\s+đua|Hội\s+xuân|Hội\s+hoa|Liên\s+
 _RX0 = re.compile(rf"(?<!\w)(?:{_P0})(?!\w)", re.I)
 _RX1 = re.compile(rf"(?<!\w)(?:{_P1})(?!\w)", re.I)
 _STOP1 = set("""đã sẽ đang sắp tại ở trong với để nhằm từ vào lúc sau trước có được bị là đón hoặc của cùng như khi nơi
-bởi do theo gồm cho về trên dưới đến tới qua giữa vẫn còn thuộc nhưng mà thì rằng vừa""".split())
+bởi do theo gồm cho về trên dưới đến tới qua giữa vẫn còn thuộc nhưng mà thì rằng vừa những các""".split())
 # cụm từ chỉ hành động/mô tả (so khớp theo cụm, KHÔNG tách từng âm tiết để không cắt nhầm tên như "Thành Hoàng", "Mùa Đông")
 _STOP2 = {("khai", "mạc"), ("bế", "mạc"), ("diễn", "ra"), ("thu", "hút"), ("quy", "tụ"), ("hứa", "hẹn"),
           ("chính", "thức"), ("hấp", "dẫn"), ("sôi", "động"), ("rộn", "ràng"), ("nhộn", "nhịp"), ("dự", "kiến"),
@@ -419,7 +419,7 @@ def _strip_prov_prefix(n: str) -> str:
     return m.group(2) if m and normalize(m.group(1)) in _PROV_NORM else n
 
 
-def event_name(title: str, body: str = "") -> str:
+def _event_name_core(title: str, body: str = "") -> str:
     """Tên lễ hội/sự kiện (vd 'Lễ hội Ok Om Bok'), bỏ phần mô tả hoạt động như 'Khai mạc', 'Đêm nhạc', 'Pháo hoa'.
     Nhiều hoạt động của cùng một lễ hội nhờ vậy cùng một tên -> được gộp thành 1 sự kiện. '' nếu không nhận ra."""
     t = unicodedata.normalize("NFC", re.sub(r"\s+", " ", title or ""))
@@ -444,6 +444,16 @@ def event_name(title: str, body: str = "") -> str:
             if _valid_event_name(n) and _cap_after_kw(n, m.group(0)):
                 return n
     return _strip_prov_prefix(_event_name_old(title, body))
+
+
+# Lễ riêng (tên bản địa) phải có tiền tố "Lễ hội": "Sen Dolta" -> "Lễ hội Sen Dolta"
+_PROPER_FEST = re.compile(r"^(?:Sene?\s+Dolta|Sen\s+Đôn\s*Ta|Đôn\s*Ta|Ok\s+Om\s+Bok|Óoc\s+Om\s+Bóc)(?!\w)", re.I)
+
+
+def event_name(title: str, body: str = "") -> str:
+    """Tên lễ hội/sự kiện (xem _event_name_core). Tên lễ riêng như Sene Dolta, Ok Om Bok luôn có tiền tố 'Lễ hội'."""
+    n = _event_name_core(title, body)
+    return f"Lễ hội {n}" if n and _PROPER_FEST.match(n) else n
 
 
 # ---------- Tên, tóm tắt ----------

@@ -42,7 +42,7 @@ def format_event(e: Event, show_summary: bool = False) -> str:
         lines.append("Nguồn: AI tìm kiếm Google (nên đối chiếu)")
     if e.sources:
         extra = f" (+{len(e.sources) - 1} nguồn khác)" if len(e.sources) > 1 else ""
-        lines.append(f"Nguồn: {e.sources[0]}{extra}")
+        lines.append(f"Nguồn: {e.main_source}{extra}")
     return "\n".join(lines)
 
 

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import date
+from urllib.parse import urlparse
 
 from . import config
 from .geo import normalize
@@ -22,6 +23,20 @@ TRADITIONAL_KW = ["ooc om boc", "kate", "dieu tri cung", "trung thu", "trang ram
 # Loại sự kiện đong đếm được quy mô: ca nhạc, hội chợ (pháo hoa xét riêng qua cờ fireworks)
 SCALE_KW = ["ca nhac", "dem nhac", "nhac hoi", "dai nhac hoi", "concert", "liveshow", "live show",
             "countdown", "music festival", "hoi cho"]
+
+# Nguồn dạng video (đài truyền hình, mạng xã hội) -> xếp sau bài văn bản khi chọn link hiển thị
+VIDEO_HOSTS = ("canthotv.vn", "youtube.com", "youtu.be", "facebook.com", "fb.watch", "tiktok.com", "vimeo.com")
+VIDEO_PATHS = ("/video", "/clip", "/truyen-hinh")
+
+
+def source_rank(url: str) -> int:
+    """0 = bài văn bản (ưu tiên nhất), 1 = link Google News chưa giải mã, 2 = video."""
+    p = urlparse(url)
+    host = (p.hostname or "").lower().removeprefix("www.")
+    if any(host == h or host.endswith("." + h) for h in VIDEO_HOSTS) or any(x in p.path.lower() for x in VIDEO_PATHS):
+        return 2
+    return 1 if host == "news.google.com" else 0
+
 
 PRIORITY_LABEL = {"CAO": "CAO", "TB": "TB", "THAP": "THẤP"}
 PRIORITY_RANK = {"CAO": 0, "TB": 1, "THAP": 2}
@@ -47,6 +62,11 @@ class Event:
     @property
     def last_date(self) -> date | None:
         return self.end_date or self.start_date
+
+    @property
+    def main_source(self) -> str:
+        """Link hiển thị: ưu tiên bài văn bản, video để sau cùng."""
+        return min(self.sources, key=source_rank, default="")
 
     @property
     def is_large(self) -> bool:
