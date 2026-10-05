@@ -2,6 +2,7 @@
 import json
 import logging
 import re
+import time
 from datetime import date
 
 import requests
@@ -62,6 +63,7 @@ class LLM:
         self.last_error = ""
         self.search_calls = 0
         self.disc_off = False
+        self._last = 0.0
 
     @property
     def enabled(self) -> bool:
@@ -82,7 +84,15 @@ class LLM:
             s += f"; tìm kiếm Google {self.search_calls}/{config.llm_search_max()}" + (f" (TẮT: {self.last_error})" if self.disc_off else "")
         return s
 
+    def _throttle(self, gap: float = 13.0) -> None:
+        """Giãn cách các lệnh gọi để không vượt hạn mức RPM của gói free (5 RPM -> >= 12 giây/lần)."""
+        wait = gap - (time.monotonic() - self._last)
+        if wait > 0:
+            time.sleep(wait)
+        self._last = time.monotonic()  
+  
     def _call(self, prompt: str) -> str:
+        self._throttle()
         if self.provider == "gemini":
             r = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent",
@@ -106,6 +116,7 @@ class LLM:
 
     def _search_call(self, prompt: str) -> str | None:
         """Gọi Gemini kèm công cụ Google Search (đọc web trực tiếp, không phụ thuộc link Google News)."""
+        self._throttle()
         self.search_calls += 1
         try:
             r = requests.post(
