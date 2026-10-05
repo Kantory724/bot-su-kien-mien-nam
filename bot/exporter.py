@@ -37,7 +37,7 @@ def export_excel(db: DB, period: str = "week", out: str | None = None, today: da
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for e in events:
         ws.append([e.start_date, e.last_date, e.start_time, province_name(e.province), e.name, e.venue,
-                   e.shown_crowd, "Có" if e.fireworks else "", "Có" if e.big_concert else "",
+                   e.shown_crowd or "Không rõ", "Có" if e.fireworks else "", "Có" if e.big_concert else "",
                    PRIORITY_LABEL[e.priority], e.summary, e.main_source])
         row = ws.max_row
         ws.cell(row, 10).fill = PatternFill("solid", fgColor=FILL[e.priority])

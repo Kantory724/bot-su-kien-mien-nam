@@ -88,9 +88,8 @@ class Event:
 
     @property
     def shown_crowd(self) -> int | None:
-        """Số người hiển thị: chỉ khi sự kiện có ca nhạc/hội chợ/pháo hoa.
-        Lễ hội truyền thống (vd lễ Nguyễn Trung Trực, diễn ra ở nhiều tỉnh) thì không đong đếm quy mô."""
-        return self.crowd if (self.crowd and self.has_scale_kind) else None
+        """Số người dự kiến theo bài báo (None nếu bài không nêu -> hiển thị 'Không rõ')."""
+        return self.crowd or None
 
     def large_reasons(self) -> list[str]:
         r = []

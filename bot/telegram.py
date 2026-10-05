@@ -1,4 +1,5 @@
 """Gọi Telegram Bot API trực tiếp bằng requests (nhẹ, ít phụ thuộc, chạy tốt trên GitHub Actions)."""
+import json
 import logging
 import time
 

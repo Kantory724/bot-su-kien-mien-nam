@@ -56,8 +56,8 @@ def tick(db: DB, tg: Telegram, llm: LLM | None = None, poll_timeout: int = 0) ->
         poll_once(db, tg, poll_timeout)
     except Exception as e:  # noqa
         log.error("Poll lệnh lỗi: %s", e)
-        n = len(db.recipients())
-        
+
+    n = len(db.recipients())
     if db.get("shown_users") != str(n):  # chỉ gọi Telegram khi số thay đổi
         try:
             tg.set_short_description(f"Tin lễ hội, sự kiện miền Nam · {n} người đang nhận tin")
