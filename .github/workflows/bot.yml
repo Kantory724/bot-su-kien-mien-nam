@@ -50,6 +50,11 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
           MAX_ARTICLE_FETCH: "60"
+          LLM_MAX_CALLS: "6"
+          LLM_SEARCH_MAX: "10"
+          LOOKUP_MAX: "1"
+          DISCOVER_PER_RUN: "4"
+          COLLECT_INTERVAL_MIN: "240"
         run: |
           ACTION="${{ github.event.inputs.action }}"
           if [ -z "$ACTION" ] || [ "$ACTION" = "tick" ]; then
