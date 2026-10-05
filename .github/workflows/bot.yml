@@ -55,6 +55,7 @@ jobs:
           LOOKUP_MAX: "0"
           DISCOVER_PER_RUN: "4"
           COLLECT_INTERVAL_MIN: "240"
+          BATCH_MAX: "2"
         run: |
           ACTION="${{ github.event.inputs.action }}"
           if [ -z "$ACTION" ] || [ "$ACTION" = "tick" ]; then
