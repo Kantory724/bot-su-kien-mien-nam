@@ -98,3 +98,8 @@ class Telegram:
             return
         self._call("setMyCommands", {"commands": json.dumps(
             [{"command": c, "description": d} for c, d in commands], ensure_ascii=False)})
+    def set_short_description(self, text: str) -> None:
+        if self.dry:
+            print(text)
+            return
+        self._call("setMyShortDescription", {"short_description": text[:120]})
