@@ -27,8 +27,6 @@ def format_event(e: Event, show_summary: bool = False) -> str:
     lines = [f"[{PRIORITY_LABEL.get(e.priority, 'THẤP')}] {fmt_range(e.start_date, e.end_date)} · {province_name(e.province)}",
              e.name]
     lines.append(f"Địa điểm: {e.venue}" if e.venue else "Địa điểm: chưa rõ (xem nguồn)")
-    if e.start_time:
-        lines.append(f"Giờ: {e.start_time}")
     scale = []
     if e.shown_crowd:
         scale.append(f"~{fmt_num(e.shown_crowd)} người")
