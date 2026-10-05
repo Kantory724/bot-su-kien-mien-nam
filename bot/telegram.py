@@ -92,3 +92,9 @@ class Telegram:
         if offset:
             data["offset"] = offset
         return self._call("getUpdates", data, timeout=timeout + 20)
+    def set_commands(self, commands: list[tuple[str, str]]) -> None:
+        if self.dry:
+            print(commands)
+            return
+        self._call("setMyCommands", {"commands": json.dumps(
+            [{"command": c, "description": d} for c, d in commands], ensure_ascii=False)})
