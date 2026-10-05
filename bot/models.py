@@ -12,12 +12,16 @@ MID_KW = ["le hoi", "hoi cho", "trien lam", "marathon", "giai chay", "via ba", "
           "chol chnam thmay", "sen dolta", "khai mac", "festival", "le ky niem", "dua ghe",
           "dua bo", "giao thua", "tet", "ky yen", "nghinh ong", "cau ngu", "le via", "cung dinh", "gio to", "vu lan", "nghi le", "quoc khanh", "hoi nghi", "dien dan"]
 
-# Lễ hội truyền thống / tín ngưỡng: không cần quy mô (ẩn số người nhỏ, luôn tối thiểu mức TB)
+# Lễ hội truyền thống / tín ngưỡng: không cần quy mô (luôn tối thiểu mức TB)
 TRADITIONAL_KW = ["ooc om boc", "kate", "dieu tri cung", "trung thu", "trang ram", "via ba", "ba chua xu", "ok om bok", "chol chnam thmay", "sen dolta", "ky yen", "nghinh ong", "cau ngu",
                   "cung dinh", "le via", "gio to", "vu lan", "le hoi dinh", "le hoi chua", "le hoi den", "le hoi mieu",
                   "le dang huong", "le roc", "dua ghe", "dua bo", "hoi dua", "le ha dien", "le thanh minh",
                   "nguyen trung truc", "nguyen dinh chieu", "thoai ngoc hau", "tran hung dao", "ba den", "quan the am",
                   "nguyen huu canh", "le van duyet", "ong dia", "ba thien hau", "quan de", "le hoi nghinh"]
+
+# Loại sự kiện đong đếm được quy mô: ca nhạc, hội chợ (pháo hoa xét riêng qua cờ fireworks)
+SCALE_KW = ["ca nhac", "dem nhac", "nhac hoi", "dai nhac hoi", "concert", "liveshow", "live show",
+            "countdown", "music festival", "hoi cho"]
 
 PRIORITY_LABEL = {"CAO": "CAO", "TB": "TB", "THAP": "THẤP"}
 PRIORITY_RANK = {"CAO": 0, "TB": 1, "THAP": 2}
@@ -55,11 +59,18 @@ class Event:
         return any(f" {k} " in n for k in TRADITIONAL_KW)
 
     @property
+    def has_scale_kind(self) -> bool:
+        """Chỉ sự kiện có ca nhạc / hội chợ / pháo hoa mới có quy mô đong đếm được."""
+        if self.fireworks or self.big_concert:
+            return True
+        n = " " + normalize(f"{self.name} {self.summary}") + " "
+        return any(f" {k} " in n for k in SCALE_KW)
+
+    @property
     def shown_crowd(self) -> int | None:
-        """Số người hiển thị: lễ hội truyền thống chỉ hiện khi rất lớn (>= ngưỡng cảnh báo), tránh con số nhỏ gây nhiễu."""
-        if self.crowd and self.is_traditional and self.crowd >= config.large_crowd():
-            return self.crowd
-        return None
+        """Số người hiển thị: chỉ khi sự kiện có ca nhạc/hội chợ/pháo hoa.
+        Lễ hội truyền thống (vd lễ Nguyễn Trung Trực, diễn ra ở nhiều tỉnh) thì không đong đếm quy mô."""
+        return self.crowd if (self.crowd and self.has_scale_kind) else None
 
     def large_reasons(self) -> list[str]:
         r = []
