@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS events(
   fireworks INTEGER DEFAULT 0, big_concert INTEGER DEFAULT 0, priority TEXT, summary TEXT,
   sources TEXT, first_seen TEXT, updated_at TEXT, alerted INTEGER DEFAULT 0, search_text TEXT);
 CREATE INDEX IF NOT EXISTS ix_events_date ON events(start_date, end_date);
+CREATE TABLE IF NOT EXISTS subscribers(chat_id TEXT PRIMARY KEY, name TEXT, joined_at TEXT);
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS source_health(
   source_id TEXT PRIMARY KEY, name TEXT, fail_count INTEGER DEFAULT 0, last_error TEXT,
@@ -52,6 +53,23 @@ class DB:
         self.conn.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                           (key, str(value)))
         self.conn.commit()
+
+    # ---- người đăng ký ----
+    def add_subscriber(self, chat_id: str, name: str = ""):
+        self.conn.execute("INSERT OR IGNORE INTO subscribers VALUES(?,?,?)",
+                          (str(chat_id), name[:60], config.now().isoformat(timespec="seconds")))
+        self.conn.commit()
+
+    def remove_subscriber(self, chat_id: str):
+        self.conn.execute("DELETE FROM subscribers WHERE chat_id=?", (str(chat_id),))
+        self.conn.commit()
+
+    def subscribers(self) -> list[str]:
+        return [r[0] for r in self.conn.execute("SELECT chat_id FROM subscribers ORDER BY joined_at")]
+
+    def recipients(self) -> list[str]:
+        """Danh sách nhận tin = TELEGRAM_CHAT_IDS (cố định) + người tự đăng ký bằng /start."""
+        return list(dict.fromkeys(config.chat_ids() + self.subscribers()))
 
     # ---- articles ----
     def seen(self, url: str) -> bool:
@@ -97,13 +115,19 @@ class DB:
              config.now().isoformat(timespec="seconds"), self._search_text(e), e.id))
         self.conn.commit()
 
-    def candidates_for_dedupe(self, province: str, start: date | None) -> list[Event]:
-        """Sự kiện cùng tỉnh, lệch ngày <= 3 hoặc chưa rõ ngày."""
+    def candidates_for_dedupe(self, province: str, start: date | None, end: date | None = None) -> list[Event]:
+        """Sự kiện cùng tỉnh có khoảng ngày giao nhau/cách nhau <= 3 ngày (hoặc chưa rõ ngày).
+        So theo CẢ KHOẢNG ngày: hoạt động ngày cuối của một lễ hội dài ngày vẫn được nhận ra là cùng lễ hội."""
         rows = self.conn.execute("SELECT * FROM events WHERE province=?", (province,)).fetchall()
         out = []
         for r in rows:
             e = self._row_to_event(r)
-            if start is None or e.start_date is None or abs((e.start_date - start).days) <= 3:
+            if start is None or e.start_date is None:
+                out.append(e)
+                continue
+            a_end, b_end = (end or start), e.last_date
+            gap = (max(start, e.start_date) - min(a_end, b_end)).days
+            if gap <= 3:
                 out.append(e)
         return out
 
@@ -153,6 +177,8 @@ class DB:
         cut = (config.today() - timedelta(days=90)).isoformat()
         self.conn.execute("DELETE FROM articles WHERE seen_at < ?", (cut,))
         self.conn.execute("DELETE FROM events WHERE COALESCE(end_date,start_date,substr(first_seen,1,10)) < ?", (cut,))
+        cut30 = (config.today() - timedelta(days=30)).isoformat()
+        self.conn.execute("DELETE FROM events WHERE start_date IS NULL AND substr(first_seen,1,10) < ?", (cut30,))
         self.conn.commit()
 
     # ---- sức khoẻ nguồn ----

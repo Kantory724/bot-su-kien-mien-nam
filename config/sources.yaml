@@ -22,7 +22,7 @@ sources:
     name: Google News
     type: google_news
     window: 14d
-    topics: '(lễ hội OR "đại nhạc hội" OR "pháo hoa" OR "khai mạc" OR "hội chợ" OR "triển lãm" OR countdown OR marathon OR "ca nhạc" OR "lễ kỷ niệm")'
+    topics: '(lễ hội OR "đại nhạc hội" OR "pháo hoa" OR "khai mạc" OR "hội chợ" OR "triển lãm" OR countdown OR marathon OR "ca nhạc" OR "lễ kỷ niệm" OR "đua bò" OR "đua ghe" OR "Ok Om Bok" OR "Vía Bà")'
     provinces:
       hcm:      '"TP.HCM" OR "Sài Gòn" OR "Vũng Tàu" OR "Bình Dương"'
       dongnai:  '"Đồng Nai" OR "Biên Hòa" OR "Bình Phước"'
@@ -32,6 +32,97 @@ sources:
       vinhlong: '"Vĩnh Long" OR "Bến Tre" OR "Trà Vinh"'
       cantho:   '"Cần Thơ" OR "Sóc Trăng" OR "Hậu Giang"'
       camau:    '"Cà Mau" OR "Bạc Liêu"'
+
+  # ---- Cổng thông tin du lịch Đồng Tháp (có tin lễ hội cả vùng ĐBSCL, vd: Hội Đua bò Bảy Núi - An Giang) ----
+  # Khung "Latest News" của trang này liệt kê 10 tin mới nhất. Không đặt province_hint vì tin của nhiều tỉnh.
+  - id: dulich-dongthap
+    name: "Cổng Du lịch Đồng Tháp"
+    type: html
+    url: "http://dulich.dongthap.gov.vn/iv/events"
+    item_selector: 'a[href*="detailnews"]'
+
+  # ---- Báo / cổng tin địa phương của 8 tỉnh (type auto: tự tìm RSS của trang, không có thì lấy các link bài trên trang) ----
+  # local: true  -> bài từ báo địa phương được tính thuộc tỉnh province_hint dù tít không nhắc tên tỉnh
+  #                 (tít/đoạn đầu nhắc nơi khác trong 8 tỉnh thì vẫn theo nơi đó).
+  # urls: nhiều địa chỉ cho cùng một tỉnh (gồm báo của các tỉnh cũ đã sáp nhập); địa chỉ nào hỏng thì bỏ qua,
+  #       chỉ báo lỗi khi TẤT CẢ đều hỏng. Kiểm tra bằng: python main.py check-sources
+  - id: sggp
+    name: "Báo SGGP (TP.HCM)"
+    type: auto
+    province_hint: hcm
+    urls:
+      - "https://sggp.org.vn/"
+      - "https://sggp.org.vn/thanh-pho-ho-chi-minh/"
+  - id: hcm-local
+    name: "Báo Bình Dương / Bà Rịa - Vũng Tàu / Thành ủy TP.HCM"
+    type: auto
+    province_hint: hcm
+    local: true
+    urls:
+      - "https://baobinhduong.vn/"
+      - "https://baobariavungtau.com.vn/"
+      - "https://hcmcpv.org.vn/"
+  - id: dongnai-local
+    name: "Báo Đồng Nai / Bình Phước / Đài PT-TH Đồng Nai"
+    type: auto
+    province_hint: dongnai
+    local: true
+    urls:
+      - "https://baodongnai.com.vn/"
+      - "https://dnrtv.vn/"
+      - "https://baobinhphuoc.com.vn/"
+  - id: tayninh-local
+    name: "Báo Tây Ninh / Long An"
+    type: auto
+    province_hint: tayninh
+    local: true
+    urls:
+      - "https://baotayninh.vn/"
+      - "https://baolongan.vn/"
+  - id: angiang-local
+    name: "Báo An Giang / Kiên Giang"
+    type: auto
+    province_hint: angiang
+    local: true
+    urls:
+      - "https://baoangiang.com.vn/"
+      - "https://baokiengiang.vn/"
+  - id: dongthap-local
+    name: "Báo Đồng Tháp / Ấp Bắc (Tiền Giang)"
+    type: auto
+    province_hint: dongthap
+    local: true
+    urls:
+      - "https://baodongthap.vn/"
+      - "https://baoapbac.vn/"
+  - id: vinhlong-local
+    name: "Báo Vĩnh Long / Bến Tre / Trà Vinh"
+    type: auto
+    province_hint: vinhlong
+    local: true
+    urls:
+      - "https://baovinhlong.vn/"
+      - "https://baovinhlong.com.vn/"
+      - "https://baobentre.vn/"
+      - "https://baotravinh.vn/"
+  - id: cantho-local
+    name: "Báo Cần Thơ / Sóc Trăng / Hậu Giang / Đài PT-TH Cần Thơ"
+    type: auto
+    province_hint: cantho
+    local: true
+    urls:
+      - "https://baocantho.com.vn/"
+      - "https://canthotv.vn/"
+      - "https://baosoctrang.org.vn/"
+      - "https://baohaugiang.com.vn/"
+  - id: camau-local
+    name: "Báo Cà Mau / Bạc Liêu"
+    type: auto
+    province_hint: camau
+    local: true
+    urls:
+      - "https://baocamau.vn/"
+      - "https://baobaclieu.vn/"
 
   # ---- MẪU cổng thông tin UBND / Sở VH-TT-DL, trang bán vé (type html) ----
   # Bật lên sau khi bạn mở trang, F12 > chuột phải vào tiêu đề tin > Copy selector, rồi điền vào.

@@ -10,7 +10,7 @@ from urllib.parse import quote
 import feedparser
 
 from . import config
-from .collector import Item, _get, _resolve_gnews, _text, bing_search, fetch_article_text
+from .collector import Item, _get, _resolve_gnews, _text, fetch_article_text
 from .extractor import canonical_name, choose_date, extract_rules, find_dates, is_prep_title, valid_venue
 from .geo import LOCAL_SITES, PROVINCES, detect_province, normalize, province_name, title_elsewhere
 from .models import Event
@@ -29,20 +29,8 @@ def _terms(ev: Event) -> str:
 
 
 def _search(q: str) -> list[tuple[Item, str]]:
-    """Tìm bài: Bing News trước (link gốc sẵn, không bị chặn trên GitHub Actions); lỗi/rỗng thì dự phòng Google News.
-    Trả về [(bài, URL hoặc tên miền báo gốc)]."""
-    try:
-        res = bing_search(q)
-        if res:
-            return res
-    except Exception as e:  # noqa
-        log.info("Bing '%s' lỗi: %s", q[:60], type(e).__name__)
-    return _google_search(q)
-
-
-def _google_search(q: str) -> list[tuple[Item, str]]:
-    """Dự phòng: Google News (link phải giải mã, có thể bị chặn)."""
-    feed = feedparser.parse(_get(GNEWS.format(q=quote(q + " when:90d"))).content)
+    """Tìm trên Google News. Trả về [(bài, tên miền báo gốc)]."""
+    feed = feedparser.parse(_get(GNEWS.format(q=quote(q))).content)
     out = []
     for e in feed.entries[:15]:
         if not e.get("link") or not e.get("title"):
@@ -81,8 +69,8 @@ def enrich_event(ev: Event, llm, today: date, deadline: float) -> bool:
     terms = _terms(ev)
     queries = []
     if sites:
-        queries.append(f"{terms} ({' OR '.join('site:' + d for d in sites[:5])})")
-    queries.append(terms)
+        queries.append(f"{terms} ({' OR '.join('site:' + d for d in sites[:5])}) when:90d")
+    queries.append(f"{terms} when:90d")
     evt = _tokens(ev.name, ev.province)
     cands, seen = [], set()
     for q in queries:
@@ -139,10 +127,6 @@ def enrich_event(ev: Event, llm, today: date, deadline: float) -> bool:
             ch = True
         changed = changed or ch or ev.sources != had
     # thay link Google News dài bằng link bài gốc (nếu giải mã được)
-    if _real_src(ev):  # link báo gốc lên trước link Google News (chỉ đổi thứ tự, không xoá)
-        ordered = sorted(ev.sources, key=lambda s: "news.google.com" in s)
-        if ordered != ev.sources:
-            ev.sources, changed = ordered, True
     if changed:
         new_src = []
         for s in ev.sources:
@@ -165,13 +149,8 @@ def _lookup_ai(ev: Event, llm, today: date) -> bool:
         return False
     cand = Event(name=ev.name, province=ev.province, venue=d["venue"] if valid_venue(d["venue"]) else "",
                  start_date=d["start_date"], end_date=d["end_date"] or d["start_date"], start_time=d["start_time"],
-                 crowd=d["crowd"], fireworks=d["fireworks"], big_concert=d["big_concert"], summary=d["summary"],
-                 sources=list(d.get("sources") or []))
+                 crowd=d["crowd"], fireworks=d["fireworks"], big_concert=d["big_concert"], summary=d["summary"], sources=[])
     return merge_into(ev, cand)
-
-
-def _real_src(e: Event) -> bool:
-    return any("news.google.com" not in s for s in e.sources)
 
 
 def _pending(db, today: date) -> list[Event]:
@@ -179,8 +158,8 @@ def _pending(db, today: date) -> list[Event]:
     for e in db.all_events():
         if e.last_date and e.last_date < today:
             continue
-        if e.start_date and e.venue and _real_src(e):
-            continue  # đã đủ ngày + địa điểm + link báo gốc
+        if e.start_date and e.venue:
+            continue  # đã đủ ngày + địa điểm
         if e.start_date and e.start_date > today + timedelta(days=60):
             continue
         out.append(e)
@@ -196,7 +175,7 @@ def enrich_events(db, llm, today: date, force: bool = False, limit: int | None =
     for ev in _pending(db, today):
         if done >= limit or time.monotonic() > deadline:
             break
-        key = f"enr2_{ev.id}"
+        key = f"enr_{ev.id}"
         n, _, ts = (db.get(key, "0|") or "0|").partition("|")
         tries = int(n or 0)
         last = datetime.fromisoformat(ts) if ts else None
@@ -217,6 +196,6 @@ def enrich_events(db, llm, today: date, force: bool = False, limit: int | None =
         if changed:
             db.update_event(ev)
             log.info("Bổ sung: %s | %s | %s", ev.name[:50], ev.start_date, ev.venue)
-        complete = bool(ev.start_date and ev.venue and _real_src(ev))
+        complete = bool(ev.start_date and ev.venue)
         db.set(key, f"{99 if complete else tries + 1}|{now.isoformat(timespec='seconds')}")
     return done
