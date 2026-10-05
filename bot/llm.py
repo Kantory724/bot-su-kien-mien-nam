@@ -52,6 +52,12 @@ Trả về DUY NHẤT một JSON object (không markdown): start_date (YYYY-MM-D
 venue (địa điểm cụ thể + phường/xã, hoặc ""), start_time (HH:MM hoặc ""), crowd (số hoặc null), fireworks (bool), big_concert (bool),
 summary (1 câu tiếng Việt). Chỉ lấy đợt tổ chức sắp tới/đang diễn ra; không chắc thì null/"". Không bịa."""
 
+LOOKUP_MANY_PROMPT = """Hôm nay là {today}. Dùng Google Search tìm ngày tổ chức SẮP TỚI hoặc ĐANG diễn ra của từng sự kiện sau, được báo là ở {pname} (gồm cả {old}):
+{names}
+Trả về DUY NHẤT một mảng JSON (không markdown), mỗi phần tử ứng với một sự kiện trong danh sách, giữ NGUYÊN tên đã cho ở khóa name, kèm các khóa:
+in_province (bool: sự kiện có thật sự diễn ra ở {pname} không), start_date (YYYY-MM-DD hoặc null), end_date (YYYY-MM-DD hoặc null),
+venue (địa điểm cụ thể + phường/xã, hoặc ""), start_time (HH:MM hoặc ""), crowd (số hoặc null), fireworks (bool), big_concert (bool), summary (1 câu tiếng Việt).
+Chỉ lấy đợt tổ chức sắp tới/đang diễn ra trong năm nay; không chắc thì null. Không bịa."""
 
 class LLM:
     def __init__(self):
@@ -178,6 +184,30 @@ class LLM:
         c = self._clean({**raw, "is_event": True, "province": pkey, "name": name})
         return c if c["start_date"] else None
 
+    def lookup_many(self, names: list[str], pkey: str, today: date) -> list[dict] | None:
+        """Tra ngày/địa điểm cho NHIỀU sự kiện của một tỉnh bằng một lệnh Gemini + Google Search."""
+        if not names or not self.can_search():
+            return None
+        txt = self._search_call(LOOKUP_MANY_PROMPT.format(
+            today=today.isoformat(), pname=PROVINCES[pkey][0], old=OLD_NAMES.get(pkey, ""),
+            names="\n".join(f"- {n}" for n in names)))
+        if txt is None:
+            return None
+        clean = re.sub(r"```(?:json)?", "", txt)
+        i = clean.find("[")
+        try:
+            arr = json.JSONDecoder().raw_decode(clean[i:])[0] if i >= 0 else []
+        except ValueError:
+            return []
+        out = []
+        for raw in arr if isinstance(arr, list) else []:
+            if isinstance(raw, dict) and raw.get("name"):
+                c = self._clean({**raw, "is_event": True, "province": pkey})
+                c["name"] = str(raw["name"]).strip()
+                c["in_province"] = raw.get("in_province") is not False
+                out.append(c)
+        return out
+  
     def extract(self, title: str, body: str, pub: date | None, today: date) -> dict | None:
         if not self.enabled:
             return None
