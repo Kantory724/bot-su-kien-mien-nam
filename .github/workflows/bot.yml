@@ -54,7 +54,7 @@ jobs:
           ACTION="${{ github.event.inputs.action }}"
           if [ -z "$ACTION" ] || [ "$ACTION" = "tick" ]; then
             # Lượt tự động chỉ có 285 giây: collect phải tự dừng êm trước giờ đó (tiến độ được lưu sau từng bài)
-            export COLLECT_BUDGET_SEC=230 ENRICH_BUDGET_SEC=40
+            export COLLECT_BUDGET_SEC=260 ENRICH_BUDGET_SEC=40
             timeout -s INT 285 python main.py serve || true
           else
             export COLLECT_BUDGET_SEC=540
