@@ -40,6 +40,7 @@ class Telegram:
             raise RuntimeError("Thiếu TELEGRAM_BOT_TOKEN (đặt trong .env hoặc GitHub Secrets).")
         self.s = requests.Session()
         self.dead: set[str] = set()  # chat đã chặn bot/không còn tồn tại
+        self.footer = ""  # dòng gắn cuối mọi tin nhắn (vd số người nhận tin)
 
     def _call(self, method: str, data=None, files=None, timeout=40):
         url = f"https://api.telegram.org/bot{self.token}/{method}"
@@ -58,8 +59,11 @@ class Telegram:
             return j["result"]
         raise RuntimeError(f"Telegram {method}: quá nhiều lần bị giới hạn tốc độ")
 
+    def set_footer(self, db) -> None:
+        self.footer = f"👥 Số người nhận tin: {len(db.recipients())}"
+  
     def send(self, chat_id: str, text: str) -> None:
-        for part in split_message(text):
+        for part in split_message(f"{text}\n\n{self.footer}" if self.footer else text):
             if self.dry:
                 print(f"\n----- [DRY-RUN → {chat_id}] -----\n{part}\n")
                 continue
