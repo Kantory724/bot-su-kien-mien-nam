@@ -174,7 +174,7 @@ def run_discover(db: DB, llm: LLM | None, today: date, deadline: float) -> int:
         if done >= config.discover_provinces_per_run() or deadline - time.monotonic() < 45 or not llm.can_search():
             break
         last = db.get(f"disc_{k}")
-        if last and now - datetime.fromisoformat(last) < timedelta(hours=12):
+        if last and now - datetime.fromisoformat(last) < timedelta(hours=4):
             break  # đã xếp theo thời điểm cũ nhất; các tỉnh còn lại đều mới hỏi
         res = llm.discover(k, today)
         if res is None:
