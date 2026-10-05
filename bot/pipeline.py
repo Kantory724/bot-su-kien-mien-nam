@@ -441,6 +441,7 @@ def prune_dead(db: DB, tg: Telegram) -> None:
 
 
 def send_alerts(db: DB, tg: Telegram) -> int:
+    tg.set_footer(db)
     n = 0
     for e in db.unalerted_large(config.today()):
         if tg.broadcast(format_alert(e), db.recipients()):
@@ -456,6 +457,7 @@ def run_digest(db: DB, tg: Telegram, force: bool = False) -> bool:
     if not force and db.get("last_digest_date") == today.isoformat():
         log.info("Bản tin hôm nay đã gửi, bỏ qua.")
         return False
+    tg.set_footer(db)
     days = config.lookahead_days()
     events = db.events_between(today, today + timedelta(days=days - 1))
     ok = tg.broadcast(format_digest(events, today, days), db.recipients())
