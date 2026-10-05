@@ -10,7 +10,7 @@ from . import config
 from .geo import PROVINCES, resolve_province
 
 log = logging.getLogger("llm")
-DEFAULT_MODEL = {"gemini": "gemini-3.8-flash", "anthropic": "claude-haiku-4-5-20251001"}
+DEFAULT_MODEL = {"gemini": "gemini-3.1-flash-lite", "anthropic": "claude-haiku-4-5-20251001"}
 
 PROMPT = """Bạn trích xuất thông tin sự kiện từ bài báo tiếng Việt cho đội vận hành mạng di động.
 Hôm nay là {today}. Bài đăng ngày {pub}. Chỉ quan tâm sự kiện sắp/đang diễn ra tại các tỉnh: {provinces}.
