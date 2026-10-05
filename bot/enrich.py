@@ -86,6 +86,7 @@ def enrich_batch(db, llm, today: date, force: bool = False) -> int:
         done += 1
         db.set(f"batch_{k}", now.isoformat(timespec="seconds"))
         by_name = {normalize(e.name): e for e in evs}
+        got = 0
         for d in res:
             ev = by_name.get(normalize(d["name"]))
             if not ev:
@@ -102,8 +103,10 @@ def enrich_batch(db, llm, today: date, force: bool = False) -> int:
             if merge_into(ev, cand):
                 db.update_event(ev)
                 n += 1
-        log.info("Tra ngày theo lô %s: %d/%d sự kiện có ngày", k, n, len(evs))
-      return n
+                got += 1
+        log.info("Tra ngày theo lô %s: %d/%d sự kiện có ngày", k, got, len(evs))
+    return n
+
 
 def enrich_event(ev: Event, llm, today: date, deadline: float) -> bool:
     """Tìm lại bài về `ev`, gộp thông tin mới vào `ev` (chưa ghi DB). Trả True nếu có thay đổi."""

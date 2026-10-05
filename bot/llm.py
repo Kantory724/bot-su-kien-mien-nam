@@ -59,6 +59,7 @@ in_province (bool: sự kiện có thật sự diễn ra ở {pname} không), st
 venue (địa điểm cụ thể + phường/xã, hoặc ""), start_time (HH:MM hoặc ""), crowd (số hoặc null), fireworks (bool), big_concert (bool), summary (1 câu tiếng Việt).
 Chỉ lấy đợt tổ chức sắp tới/đang diễn ra trong năm nay; không chắc thì null. Không bịa."""
 
+
 class LLM:
     def __init__(self):
         self.provider = config.env("LLM_PROVIDER").lower()
@@ -95,8 +96,8 @@ class LLM:
         wait = gap - (time.monotonic() - self._last)
         if wait > 0:
             time.sleep(wait)
-        self._last = time.monotonic()  
-  
+        self._last = time.monotonic()
+
     def _call(self, prompt: str) -> str:
         self._throttle()
         if self.provider == "gemini":
@@ -207,7 +208,7 @@ class LLM:
                 c["in_province"] = raw.get("in_province") is not False
                 out.append(c)
         return out
-  
+
     def extract(self, title: str, body: str, pub: date | None, today: date) -> dict | None:
         if not self.enabled:
             return None
