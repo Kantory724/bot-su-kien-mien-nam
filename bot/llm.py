@@ -119,7 +119,7 @@ class LLM:
             return "".join(p.get("text", "") for p in parts)
         except requests.HTTPError as e:
             code = e.response.status_code if e.response is not None else 0
-            log.warning("Gemini tìm kiếm lỗi HTTP %s: %s", code, (e.response.text[:200] if e.response is not None else ""))
+            log.warning("Gemini tìm kiếm lỗi HTTP %s: %s", code, (e.response.text[:1500] if e.response is not None else ""))
             if code in (400, 401, 403, 429):
                 self.last_error = f"HTTP {code}"
                 self.disc_off = True
