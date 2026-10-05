@@ -17,6 +17,7 @@ OPEN_CMDS = {"start", "stop", "help", "id"}  # ai cũng dùng được: đăng k
 
 def poll_once(db: DB, tg: Telegram, timeout: int = 0) -> int:
     """Đọc tin nhắn mới và trả lời. Chỉ chat nằm trong TELEGRAM_CHAT_IDS mới dùng được các lệnh tra cứu."""
+    tg.set_footer(db)
     offset = int(db.get("tg_offset", "0") or 0) or None
     updates = tg.get_updates(offset, timeout)
     allowed = set(db.recipients())
