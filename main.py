@@ -34,6 +34,7 @@ def main(argv=None) -> int:
     u = sub.add_parser("add-url", help="thêm tay một bài báo (link thường hoặc Google News) vào danh sách sự kiện")
     u.add_argument("url")
     sub.add_parser("enrich", help="tìm lại bài báo để bổ sung ngày/địa điểm cho các sự kiện còn thiếu")
+    sub.add_parser("discover", help="hỏi Gemini+Google Search tìm sự kiện cả 8 tỉnh")
     sub.add_parser("prune-noise", help="xoá khỏi DB các tin không phải lễ hội/văn hoá/sự kiện")
     sub.add_parser("dedupe", help="gộp các sự kiện trùng đã lưu trong DB")
     d = sub.add_parser("digest", help="gửi bản tin 7 ngày tới")
@@ -58,6 +59,10 @@ def main(argv=None) -> int:
     from bot.exporter import export_excel
     from bot.llm import LLM
     from bot.pipeline import _short, dedupe_existing, prune_noise, run_collect, run_digest
+    for k in list(__import__("bot.geo", fromlist=["PROVINCES"]).PROVINCES):
+      db.set(f"disc_{k}", "")
+    import time
+    print("Thêm:", run_discover(db, llm, config.today(), time.monotonic() + 600))
     from bot.runner import serve, tick
     from bot.telegram import Telegram
 
