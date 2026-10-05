@@ -88,8 +88,8 @@ class Event:
 
     @property
     def shown_crowd(self) -> int | None:
-        """Số người dự kiến theo bài báo (None nếu bài không nêu -> hiển thị 'Không rõ')."""
-        return self.crowd or None
+        """Số người dự kiến theo bài báo (chỉ khi >= LARGE_CROWD, mặc định 10.000; nhỏ hơn hoặc không nêu -> None -> hiển thị 'Không rõ')."""
+        return self.crowd if (self.crowd or 0) >= config.large_crowd() else None
 
     def large_reasons(self) -> list[str]:
         r = []
