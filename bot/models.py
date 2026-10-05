@@ -57,9 +57,9 @@ class Event:
     @property
     def shown_crowd(self) -> int | None:
         """Số người hiển thị: lễ hội truyền thống chỉ hiện khi rất lớn (>= ngưỡng cảnh báo), tránh con số nhỏ gây nhiễu."""
-        if self.crowd and self.is_traditional and self.crowd < config.large_crowd():
-            return None
-        return self.crowd
+        if self.crowd and self.is_traditional and self.crowd >= config.large_crowd():
+            return self.crowd
+        return None
 
     def large_reasons(self) -> list[str]:
         r = []
