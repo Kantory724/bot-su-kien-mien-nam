@@ -3,6 +3,7 @@
 import argparse
 import logging
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 
 from bot import config
@@ -57,12 +58,9 @@ def main(argv=None) -> int:
     from bot.collector import fetch_source, load_sources
     from bot.db import DB
     from bot.exporter import export_excel
+    from bot.geo import PROVINCES
     from bot.llm import LLM
-    from bot.pipeline import _short, dedupe_existing, prune_noise, run_collect, run_digest
-    for k in list(__import__("bot.geo", fromlist=["PROVINCES"]).PROVINCES):
-      db.set(f"disc_{k}", "")
-    import time
-    print("Thêm:", run_discover(db, llm, config.today(), time.monotonic() + 600))
+    from bot.pipeline import _short, dedupe_existing, prune_noise, run_collect, run_digest, run_discover
     from bot.runner import serve, tick
     from bot.telegram import Telegram
 
@@ -120,6 +118,14 @@ def main(argv=None) -> int:
     try:
         if a.cmd == "collect":
             run_collect(db, tg, llm)
+        elif a.cmd == "discover":
+            for k in PROVINCES:  # ép hỏi lại cả 8 tỉnh, bỏ qua mốc 'đã hỏi gần đây'
+                db.set(f"disc_{k}", "")
+            n = run_discover(db, llm, config.today(), time.monotonic() + 600)
+            db.set("last_discover", f"{config.now().isoformat(timespec='seconds')}: thêm {n} sự kiện")
+            db.set("llm_state", llm.status())
+            print(f"Đã thêm {n} sự kiện mới")
+            print("AI:", llm.status())
         elif a.cmd == "enrich":
             from bot.enrich import enrich_events
             print(f"Đã bổ sung {enrich_events(db, llm, config.today(), force=True, limit=10)} sự kiện")
