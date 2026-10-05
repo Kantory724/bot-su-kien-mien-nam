@@ -36,6 +36,7 @@ def main(argv=None) -> int:
     u.add_argument("url")
     sub.add_parser("enrich", help="tìm lại bài báo để bổ sung ngày/địa điểm cho các sự kiện còn thiếu")
     sub.add_parser("discover", help="hỏi Gemini+Google Search tìm sự kiện cả 8 tỉnh")
+    sub.add_parser("set-commands", help="đặt menu gợi ý lệnh (gõ / trong Telegram)")
     sub.add_parser("prune-noise", help="xoá khỏi DB các tin không phải lễ hội/văn hoá/sự kiện")
     sub.add_parser("dedupe", help="gộp các sự kiện trùng đã lưu trong DB")
     d = sub.add_parser("digest", help="gửi bản tin 7 ngày tới")
@@ -112,7 +113,15 @@ def main(argv=None) -> int:
         n = tg.broadcast("✅ Bot tin sự kiện miền Nam đã kết nối thành công.\nGõ /help để xem lệnh.")
         print(f"Đã gửi tới {n}/{len(config.chat_ids())} chat")
         return 0 if n else 1
-
+    if a.cmd == "set-commands":
+        tg.set_commands([
+            ("homnay", "Sự kiện hôm nay"), ("tuannay", "Sự kiện 7 ngày tới"),
+            ("tinh", "Sự kiện theo tỉnh (vd: /tinh Cần Thơ)"), ("sukien", "Tìm sự kiện theo từ khóa"),
+            ("excel", "Nhận file Excel (tuan hoặc thang)"), ("trangthai", "Tình trạng hệ thống"),
+            ("tatca", "Liệt kê mọi sự kiện đang lưu"), ("help", "Xem danh sách lệnh"),
+            ("stop", "Huỷ nhận tin"), ("id", "Xem Chat ID")])
+        print("Đã đặt menu lệnh")
+        return 0
     db = DB()
     llm = LLM()
     try:
