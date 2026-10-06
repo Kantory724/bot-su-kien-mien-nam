@@ -53,7 +53,7 @@ jobs:
           LLM_MAX_CALLS: "0"
           LLM_SEARCH_MAX: "10"
           LOOKUP_MAX: "0"
-          DISCOVER_PER_RUN: "4"
+          DISCOVER_PER_RUN: "0"
           COLLECT_INTERVAL_MIN: "240"
           BATCH_MAX: "2"
         run: |
