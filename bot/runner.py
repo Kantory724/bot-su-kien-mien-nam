@@ -51,7 +51,9 @@ def _last_collect_age(db: DB) -> timedelta | None:
 
 
 def tick(db: DB, tg: Telegram, llm: LLM | None = None, poll_timeout: int = 0) -> None:
-    """Một vòng: trả lời lệnh → thu thập nếu đến hạn → gửi bản tin nếu đến 07:00 mà chưa gửi."""
+    """Một vòng: trả lời lệnh → gửi bản tin nếu đã qua 07:00 mà chưa gửi → thu thập nếu đến hạn.
+    Bản tin được gửi TRƯỚC khi thu thập: thu thập có thể chạy gần hết thời gian của một lượt GitHub Actions,
+    nếu để sau thì bản tin có thể không bao giờ được gửi."""
     try:
         poll_once(db, tg, poll_timeout)
     except Exception as e:  # noqa
@@ -64,24 +66,20 @@ def tick(db: DB, tg: Telegram, llm: LLM | None = None, poll_timeout: int = 0) ->
             db.set("shown_users", n)
         except Exception as e:  # noqa
             log.warning("Cập nhật mô tả bot lỗi: %s", e)
-            
+
     now = config.now()
+    due = (now.hour >= config.digest_hour() and now.hour < 22 and db.get("last_digest_date") != now.date().isoformat())
+    if due and run_digest(db, tg):
+        if now.weekday() == 0 and db.get("last_week_excel") != now.date().isoformat():
+            _send_excel(db, tg, "week")
+            db.set("last_week_excel", now.date().isoformat())
+        if now.day == 1 and db.get("last_month_excel") != now.date().isoformat():
+            _send_excel(db, tg, "month")
+            db.set("last_month_excel", now.date().isoformat())
+
     age = _last_collect_age(db)
     if age is None or age >= timedelta(minutes=config.collect_interval_min()):
         run_collect(db, tg, llm)
-        age = timedelta(0)
-
-    due = (now.hour >= config.digest_hour() and now.hour < 22 and db.get("last_digest_date") != now.date().isoformat())
-    if due:
-        if age >= timedelta(minutes=30):
-            run_collect(db, tg, llm)
-        if run_digest(db, tg):
-            if now.weekday() == 0 and db.get("last_week_excel") != now.date().isoformat():
-                _send_excel(db, tg, "week")
-                db.set("last_week_excel", now.date().isoformat())
-            if now.day == 1 and db.get("last_month_excel") != now.date().isoformat():
-                _send_excel(db, tg, "month")
-                db.set("last_month_excel", now.date().isoformat())
 
 
 def _send_excel(db: DB, tg: Telegram, period: str) -> None:
