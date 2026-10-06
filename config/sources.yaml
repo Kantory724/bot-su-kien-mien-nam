@@ -21,7 +21,7 @@ sources:
   - id: gnews
     name: Google News
     type: google_news
-    window: 14d
+    window: 45d   # sự kiện lớn (marathon, đại nhạc hội...) thường được báo trước nhiều tuần
     topics: '(lễ hội OR "đại nhạc hội" OR "pháo hoa" OR "khai mạc" OR "hội chợ" OR "triển lãm" OR countdown OR marathon OR "ca nhạc" OR "lễ kỷ niệm" OR "đua bò" OR "đua ghe" OR "Ok Om Bok" OR "Vía Bà")'
     provinces:
       hcm:      '"TP.HCM" OR "Sài Gòn" OR "Vũng Tàu" OR "Bình Dương"'
