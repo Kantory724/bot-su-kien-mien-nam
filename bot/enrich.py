@@ -11,7 +11,8 @@ import feedparser
 
 from . import config
 from .collector import Item, _get, _resolve_gnews, _text, fetch_article_text
-from .extractor import canonical_name, choose_date, extract_rules, find_dates, is_prep_title, valid_venue
+from .extractor import (canonical_name, choose_date, extract_rules, find_dates, is_bulletin, is_prep_title,
+                        valid_venue)
 from .geo import LOCAL_SITES, PROVINCES, detect_province, normalize, province_name, title_elsewhere
 from .models import Event
 from .pipeline import STOP, _desc, _tokens, merge_into
@@ -63,51 +64,6 @@ def _info(item: Item, body: str, llm, today: date) -> dict | None:
     return info
 
 
-def enrich_batch(db, llm, today: date, force: bool = False) -> int:
-    """Tra ngày cho các sự kiện CHƯA CÓ NGÀY, mỗi tỉnh một lệnh. Mỗi tỉnh tối đa 1 lần/24 giờ (trừ khi force)."""
-    if not llm or not llm.can_search():
-        return 0
-    by_prov: dict[str, list[Event]] = {}
-    for e in db.all_events():
-        if e.start_date is None:
-            by_prov.setdefault(e.province, []).append(e)
-    now, done, n = config.now(), 0, 0
-    cap = 8 if force else config.batch_max()
-    for k in sorted(by_prov, key=lambda k: db.get(f"batch_{k}", "")):
-        if done >= cap or not llm.can_search():
-            break
-        last = db.get(f"batch_{k}")
-        if not force and last and now - datetime.fromisoformat(last) < timedelta(hours=24):
-            continue
-        evs = by_prov[k][:15]
-        res = llm.lookup_many([e.name for e in evs], k, today)
-        if res is None:
-            break  # lỗi gọi (hết hạn mức...) - thử lại lượt sau
-        done += 1
-        db.set(f"batch_{k}", now.isoformat(timespec="seconds"))
-        by_name = {normalize(e.name): e for e in evs}
-        got = 0
-        for d in res:
-            ev = by_name.get(normalize(d["name"]))
-            if not ev:
-                continue
-            if not d["in_province"]:
-                db.delete_event(ev.id)  # sự kiện không diễn ra ở tỉnh này (vd Mường Lò, chùa Hương)
-                continue
-            if not d["start_date"] or (d["end_date"] or d["start_date"]) < today - timedelta(days=3):
-                continue
-            cand = Event(name=ev.name, province=k, venue=d["venue"] if valid_venue(d["venue"]) else "",
-                        start_date=d["start_date"], end_date=d["end_date"] or d["start_date"],
-                        start_time=d["start_time"], crowd=d["crowd"], fireworks=d["fireworks"],
-                        big_concert=d["big_concert"], summary=d["summary"], sources=[])
-            if merge_into(ev, cand):
-                db.update_event(ev)
-                n += 1
-                got += 1
-        log.info("Tra ngày theo lô %s: %d/%d sự kiện có ngày", k, got, len(evs))
-    return n
-
-
 def enrich_event(ev: Event, llm, today: date, deadline: float) -> bool:
     """Tìm lại bài về `ev`, gộp thông tin mới vào `ev` (chưa ghi DB). Trả True nếu có thay đổi."""
     sites = LOCAL_SITES.get(ev.province, [])
@@ -144,6 +100,8 @@ def enrich_event(ev: Event, llm, today: date, deadline: float) -> bool:
         real = _resolve_gnews(it.link)
         if not real:
             continue
+        if is_bulletin(it.title, real):
+            continue  # bản tin thời sự: không đáng tin để lấy ngày
         art = replace(it, link=real, is_gnews=False)
         body = fetch_article_text(art)
         if not body:
@@ -215,10 +173,6 @@ def _pending(db, today: date) -> list[Event]:
 def enrich_events(db, llm, today: date, force: bool = False, limit: int | None = None) -> int:
     """Làm giàu các sự kiện còn thiếu ngày/địa điểm. Trả về số sự kiện được bổ sung."""
     limit = limit or config.enrich_max()
-    try:
-        enrich_batch(db, llm, today, force)
-    except Exception as e:  # noqa
-        log.warning("Tra ngày theo lô lỗi: %s", type(e).__name__)
     deadline = time.monotonic() + config.enrich_budget_sec()
     done, now, lookups = 0, config.now(), 0
     for ev in _pending(db, today):

@@ -9,7 +9,7 @@ from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
 from .extractor import (canonical_name, choose_date, event_name, event_keyword_hits, extract_rules, find_dates,
-                        has_negative, is_cultural_event, is_prep_title, not_vietnamese, valid_venue)
+                        has_negative, is_bulletin, is_cultural_event, is_prep_title, not_vietnamese, valid_venue)
 from .formatter import format_alert, format_digest
 from .geo import (PROVINCES, detect_province, held_elsewhere, normalize, other_area_score, score_provinces,
                   title_elsewhere)
@@ -165,13 +165,15 @@ def ingest_ai(db: DB, d: dict, province: str, today: date) -> str:
     return "new"
 
 
-def run_discover(db: DB, llm: LLM | None, today: date, deadline: float) -> int:
-    """Mỗi lượt hỏi Gemini+Google Search về vài tỉnh (tỉnh nào lâu chưa hỏi nhất trước, mỗi tỉnh >= 12 giờ/lần)."""
+def run_discover(db: DB, llm: LLM | None, today: date, deadline: float, limit: int | None = None) -> int:
+    """Mỗi lượt hỏi Gemini+Google Search về vài tỉnh (tỉnh nào lâu chưa hỏi nhất trước, mỗi tỉnh >= 12 giờ/lần).
+    Kết quả từng tỉnh (Gemini trả bao nhiêu, bao nhiêu mới/trùng/bị loại) lưu ở meta disc_res_<tỉnh> để xem bằng /trangthai."""
     if not llm or not llm.can_search():
         return 0
+    limit = limit or config.discover_provinces_per_run()
     now, new, done = config.now(), 0, 0
     for k in sorted(PROVINCES, key=lambda k: db.get(f"disc_{k}", "")):
-        if done >= config.discover_provinces_per_run() or deadline - time.monotonic() < 45 or not llm.can_search():
+        if done >= limit or deadline - time.monotonic() < 45 or not llm.can_search():
             break
         last = db.get(f"disc_{k}")
         if last and now - datetime.fromisoformat(last) < timedelta(hours=12):
@@ -180,11 +182,19 @@ def run_discover(db: DB, llm: LLM | None, today: date, deadline: float) -> int:
         if res is None:
             break  # lỗi gọi (hết hạn mức...) - thử lại lượt sau
         done += 1
+        stamp = now.strftime("%d/%m %H:%M")
+        if not llm.last_parse_ok:  # không đọc được JSON: KHÔNG đánh dấu đã hỏi để lượt sau thử lại
+            db.set(f"disc_res_{k}", f"{stamp}: không đọc được JSON của Gemini (sẽ thử lại)")
+            continue
+        stats: dict[str, int] = {}
         for d in res:
-            if ingest_ai(db, d, k, today) == "new":
-                new += 1
+            st = ingest_ai(db, d, k, today)
+            stats[st] = stats.get(st, 0) + 1
+        new += stats.get("new", 0)
+        detail = ", ".join(f"{a}={b}" for a, b in stats.items()) or "không có sự kiện hợp lệ"
         db.set(f"disc_{k}", now.isoformat(timespec="seconds"))
-        log.info("AI tìm kiếm %s: %d sự kiện", k, len(res))
+        db.set(f"disc_res_{k}", f"{stamp}: Gemini trả {llm.last_raw}, hợp lệ {len(res)} -> {detail}")
+        log.info("AI tìm kiếm %s: trả %d, hợp lệ %d -> %s", k, llm.last_raw, len(res), detail)
         time.sleep(2)
     return new
 
@@ -207,7 +217,9 @@ def prune_noise(db: DB) -> list[str]:
         head = f"{e.name} {e.venue}"
         own = score_provinces(head, e.summary).get(e.province, 0)
         why = None
-        if not is_cultural_event(e.name, e.summary, e.crowd, e.fireworks, e.big_concert):
+        if e.sources and all(is_bulletin("", u) for u in e.sources):
+            why = "chỉ có nguồn là bản tin thời sự (ngày là ngày phát sóng)"
+        elif not is_cultural_event(e.name, e.summary, e.crowd, e.fireworks, e.big_concert):
             why = "không phải sự kiện văn hoá"
         elif not event_name(e.name, e.summary):
             why = "không có tên lễ hội cụ thể"
@@ -224,6 +236,8 @@ def prune_noise(db: DB) -> list[str]:
 # ---------- Xử lý 1 bài ----------
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_date: bool = False) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
+    if is_bulletin(item.title, item.link):
+        return "not_event"  # bản tin thời sự tổng hợp: ngày trong tít là ngày phát sóng, không phải ngày sự kiện
     if title_elsewhere(item.title):
         return "out_of_scope"  # tít nói về nơi ngoài 8 tỉnh
     if not_vietnamese(item.title) or not_vietnamese(f"{item.summary} {body}"[:300]):

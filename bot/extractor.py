@@ -2,6 +2,7 @@
 import re
 import unicodedata
 from datetime import date, timedelta
+from urllib.parse import urlparse
 
 from .geo import PROVINCES, normalize
 from .lunar import lunar_to_solar
@@ -38,6 +39,16 @@ NEG_KW = ["tai nan", "tu vong", "khoi to", "bat giu", "lua dao", "chung khoan", 
           "hoc tap", "bao cao vien", "tuyen truyen", "tuyen sinh", "thi tuyen", "ban giao", "ky ket",
           "khoi cong", "nguon luc", "phat trien kinh te", "nghi quyet", "chuong trinh hanh dong", "cong nghiep van hoa",
           "doi moi sang tao", "chuyen doi", "khoa hoc cong nghe", "cong bo quyet dinh", "trao quyet dinh", "kiem tra", "giam sat"]
+
+
+def is_bulletin(title: str, url: str = "") -> bool:
+    """Bản tin thời sự tổng hợp (video đài truyền hình...): gom nhiều tin, ngày trong tít là NGÀY PHÁT SÓNG chứ không
+    phải ngày sự kiện -> không dùng để tạo sự kiện. Nhận qua tít ('Thời sự', 'Bản tin', 'Điểm tin') hoặc đoạn cuối đường dẫn."""
+    n = f" {normalize(title)} "
+    if any(k in n for k in (" thoi su ", " ban tin ", " diem tin ")):
+        return True
+    seg = urlparse(url or "").path.rstrip("/").rsplit("/", 1)[-1].lower()
+    return bool(re.search(r"(?:^|-)(?:thoi-su|ban-tin|diem-tin)(?:-|$)", seg))
 
 
 def strong_hits(text: str) -> list[str]:
