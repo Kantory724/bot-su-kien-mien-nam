@@ -179,8 +179,9 @@ def run_discover(db: DB, llm: LLM | None, today: date, deadline: float, limit: i
         if last and now - datetime.fromisoformat(last) < timedelta(hours=12):
             break  # đã xếp theo thời điểm cũ nhất; các tỉnh còn lại đều mới hỏi
         res = llm.discover(k, today)
-        if res is None:
-            break  # lỗi gọi (hết hạn mức...) - thử lại lượt sau
+        if res is None:  # lỗi gọi (hết hạn mức...) - ghi lại lý do, thử lại lượt sau
+            db.set(f"disc_res_{k}", f"{now.strftime('%d/%m %H:%M')}: lỗi gọi Gemini ({llm.last_error or 'không rõ'}), sẽ thử lại")
+            break
         done += 1
         stamp = now.strftime("%d/%m %H:%M")
         if not llm.last_parse_ok:  # không đọc được JSON: KHÔNG đánh dấu đã hỏi để lượt sau thử lại

@@ -52,13 +52,6 @@ Trả về DUY NHẤT một JSON object (không markdown): start_date (YYYY-MM-D
 venue (địa điểm cụ thể + phường/xã, hoặc ""), start_time (HH:MM hoặc ""), crowd (số hoặc null), fireworks (bool), big_concert (bool),
 summary (1 câu tiếng Việt). Chỉ lấy đợt tổ chức sắp tới/đang diễn ra; không chắc thì null/"". Không bịa."""
 
-LOOKUP_MANY_PROMPT = """Hôm nay là {today}. Dùng Google Search tìm ngày tổ chức SẮP TỚI hoặc ĐANG diễn ra của từng sự kiện sau, được báo là ở {pname} (gồm cả {old}):
-{names}
-Trả về DUY NHẤT một mảng JSON (không markdown), mỗi phần tử ứng với một sự kiện trong danh sách, giữ NGUYÊN tên đã cho ở khóa name, kèm các khóa:
-in_province (bool: sự kiện có thật sự diễn ra ở {pname} không), start_date (YYYY-MM-DD hoặc null), end_date (YYYY-MM-DD hoặc null),
-venue (địa điểm cụ thể + phường/xã, hoặc ""), start_time (HH:MM hoặc ""), crowd (số hoặc null), fireworks (bool), big_concert (bool), summary (1 câu tiếng Việt).
-Chỉ lấy đợt tổ chức sắp tới/đang diễn ra trong năm nay; không chắc thì null. Không bịa."""
-
 
 class LLM:
     def __init__(self):
@@ -70,6 +63,8 @@ class LLM:
         self.last_error = ""
         self.search_calls = 0
         self.disc_off = False
+        self.last_parse_ok = True  # lần discover gần nhất có đọc được mảng JSON không
+        self.last_raw = 0          # số phần tử Gemini trả về (trước khi lọc)
         self._last = 0.0
 
     @property
@@ -96,8 +91,8 @@ class LLM:
         wait = gap - (time.monotonic() - self._last)
         if wait > 0:
             time.sleep(wait)
-        self._last = time.monotonic()
-
+        self._last = time.monotonic()  
+  
     def _call(self, prompt: str) -> str:
         self._throttle()
         if self.provider == "gemini":
@@ -122,29 +117,46 @@ class LLM:
                     and self.search_calls < config.llm_search_max())
 
     def _search_call(self, prompt: str) -> str | None:
-        """Gọi Gemini kèm công cụ Google Search (đọc web trực tiếp, không phụ thuộc link Google News)."""
-        self._throttle()
+        """Gọi Gemini kèm công cụ Google Search (đọc web trực tiếp, không phụ thuộc link Google News).
+        Gặp 429 theo PHÚT: chờ đúng thời gian Google yêu cầu (retryDelay) rồi thử lại 1 lần.
+        Gặp 429 theo NGÀY (hết hạn mức): tắt tìm kiếm trong phiên này, lượt sau thử lại."""
+        self._throttle(float(config.env_int("LLM_SEARCH_GAP", 15)))
         self.search_calls += 1
-        try:
-            r = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent",
-                headers={"x-goog-api-key": self.key, "Content-Type": "application/json"},
-                json={"contents": [{"parts": [{"text": prompt}]}], "tools": [{"google_search": {}}],
-                      "generationConfig": {"temperature": 0}},
-                timeout=120)
-            r.raise_for_status()
-            parts = r.json()["candidates"][0]["content"]["parts"]
-            return "".join(p.get("text", "") for p in parts)
-        except requests.HTTPError as e:
-            code = e.response.status_code if e.response is not None else 0
-            log.warning("Gemini tìm kiếm lỗi HTTP %s: %s", code, (e.response.text[:1500] if e.response is not None else ""))
-            if code in (400, 401, 403, 429):
-                self.last_error = f"HTTP {code}"
-                self.disc_off = True
-            return None
-        except Exception as e:  # noqa
-            log.warning("Gemini tìm kiếm lỗi: %s", type(e).__name__)
-            return None
+        for attempt in range(2):
+            try:
+                r = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent",
+                    headers={"x-goog-api-key": self.key, "Content-Type": "application/json"},
+                    json={"contents": [{"parts": [{"text": prompt}]}], "tools": [{"google_search": {}}],
+                          "generationConfig": {"temperature": 0}},
+                    timeout=120)
+                if r.status_code == 429:
+                    body = r.text or ""
+                    m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', body)
+                    delay = float(m.group(1)) if m else 30.0
+                    daily = "perday" in body.lower().replace(" ", "").replace("_", "")
+                    log.warning("Gemini 429 (%s), retryDelay=%ss: %s", "theo ngày" if daily else "theo phút", delay, body[:300])
+                    if daily or attempt == 1 or delay > 75:
+                        self.last_error = "HTTP 429 - hết hạn mức theo ngày" if daily else "HTTP 429 - vượt hạn mức theo phút"
+                        self.disc_off = True
+                        return None
+                    time.sleep(delay + 1)
+                    self._last = time.monotonic()
+                    continue
+                r.raise_for_status()
+                parts = r.json()["candidates"][0]["content"]["parts"]
+                return "".join(p.get("text", "") for p in parts)
+            except requests.HTTPError as e:
+                code = e.response.status_code if e.response is not None else 0
+                log.warning("Gemini tìm kiếm lỗi HTTP %s: %s", code, (e.response.text[:1500] if e.response is not None else ""))
+                if code in (400, 401, 403):
+                    self.last_error = f"HTTP {code}"
+                    self.disc_off = True
+                return None
+            except Exception as e:  # noqa
+                log.warning("Gemini tìm kiếm lỗi: %s", type(e).__name__)
+                return None
+        return None
 
     def discover(self, pkey: str, today: date, days: int = 21) -> list[dict] | None:
         """Hỏi Gemini (có Google Search) các sự kiện của một tỉnh trong `days` ngày tới. None = lỗi gọi."""
@@ -156,18 +168,33 @@ class LLM:
             name=PROVINCES[pkey][0], old=OLD_NAMES.get(pkey, "")))
         if txt is None:
             return None
-        m = re.search(r"\[.*\]", txt, re.S)
-        try:
-            arr = json.loads(m.group(0)) if m else []
-        except ValueError:
-            return []
+        arr = self._json_array(txt)
+        self.last_parse_ok = arr is not None
+        if arr is None:
+            log.warning("Gemini không trả mảng JSON đọc được cho %s: %s", pkey, txt[:200].replace("\n", " "))
+            arr = []
+        self.last_raw = len(arr)
         out = []
-        for raw in arr if isinstance(arr, list) else []:
+        for raw in arr:
             if isinstance(raw, dict):
                 c = self._clean({**raw, "is_event": True, "province": pkey})
                 if c["name"] and c["start_date"]:
                     out.append(c)
         return out
+
+    @staticmethod
+    def _json_array(txt: str):
+        """Lấy mảng JSON đầu tiên trong câu trả lời, bỏ qua chữ dẫn, ```json và chú thích kiểu [1]. None nếu không có."""
+        txt = re.sub(r"```(?:json)?", "", txt or "")
+        dec = json.JSONDecoder()
+        for m in re.finditer(r"\[", txt):
+            try:
+                arr, _ = dec.raw_decode(txt[m.start():])
+            except ValueError:
+                continue
+            if isinstance(arr, list) and all(isinstance(x, dict) for x in arr):
+                return arr
+        return None
 
     def lookup(self, name: str, pkey: str, today: date) -> dict | None:
         """Tra ngày/địa điểm của MỘT sự kiện đã biết tên bằng Gemini + Google Search."""
@@ -184,30 +211,6 @@ class LLM:
             return None
         c = self._clean({**raw, "is_event": True, "province": pkey, "name": name})
         return c if c["start_date"] else None
-
-    def lookup_many(self, names: list[str], pkey: str, today: date) -> list[dict] | None:
-        """Tra ngày/địa điểm cho NHIỀU sự kiện của một tỉnh bằng một lệnh Gemini + Google Search."""
-        if not names or not self.can_search():
-            return None
-        txt = self._search_call(LOOKUP_MANY_PROMPT.format(
-            today=today.isoformat(), pname=PROVINCES[pkey][0], old=OLD_NAMES.get(pkey, ""),
-            names="\n".join(f"- {n}" for n in names)))
-        if txt is None:
-            return None
-        clean = re.sub(r"```(?:json)?", "", txt)
-        i = clean.find("[")
-        try:
-            arr = json.JSONDecoder().raw_decode(clean[i:])[0] if i >= 0 else []
-        except ValueError:
-            return []
-        out = []
-        for raw in arr if isinstance(arr, list) else []:
-            if isinstance(raw, dict) and raw.get("name"):
-                c = self._clean({**raw, "is_event": True, "province": pkey})
-                c["name"] = str(raw["name"]).strip()
-                c["in_province"] = raw.get("in_province") is not False
-                out.append(c)
-        return out
 
     def extract(self, title: str, body: str, pub: date | None, today: date) -> dict | None:
         if not self.enabled:
