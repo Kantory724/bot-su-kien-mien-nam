@@ -79,7 +79,7 @@ def _items_from_feed(src: dict, content: bytes) -> list[Item]:
     if not feed.entries:
         raise RuntimeError(f"RSS không có mục nào (bozo={getattr(feed, 'bozo', '?')})")
     items = []
-    cutoff = config.today() - timedelta(days=21)
+    cutoff = config.today() - timedelta(days=45)  # sự kiện lớn thường được báo trước nhiều tuần
     for e in feed.entries:
         pub = None
         if e.get("published_parsed"):
