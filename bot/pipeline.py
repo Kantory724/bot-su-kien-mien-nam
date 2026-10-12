@@ -9,7 +9,7 @@ from . import config
 from .collector import Item, fetch_article_text, fetch_source, load_sources
 from .db import DB
 from .extractor import (canonical_name, choose_date, event_name, event_keyword_hits, extract_rules, find_dates,
-                        has_negative, is_bulletin, is_cultural_event, is_prep_title, not_vietnamese, valid_venue)
+                        has_negative, is_cultural_event, is_prep_title, not_vietnamese, valid_venue)
 from .formatter import format_alert, format_digest
 from .geo import (PROVINCES, detect_province, held_elsewhere, normalize, other_area_score, score_provinces,
                   title_elsewhere)
@@ -165,38 +165,52 @@ def ingest_ai(db: DB, d: dict, province: str, today: date) -> str:
     return "new"
 
 
-def run_discover(db: DB, llm: LLM | None, today: date, deadline: float, limit: int | None = None) -> int:
-    """Mỗi lượt hỏi Gemini+Google Search về vài tỉnh (tỉnh nào lâu chưa hỏi nhất trước, mỗi tỉnh >= 12 giờ/lần).
-    Kết quả từng tỉnh (Gemini trả bao nhiêu, bao nhiêu mới/trùng/bị loại) lưu ở meta disc_res_<tỉnh> để xem bằng /trangthai."""
+def run_discover(db: DB, llm: LLM | None, today: date, deadline: float) -> int:
+    """Mỗi lượt hỏi Gemini+Google Search về vài tỉnh (tỉnh nào lâu chưa hỏi nhất trước, mỗi tỉnh >= 12 giờ/lần)."""
     if not llm or not llm.can_search():
         return 0
-    limit = limit or config.discover_provinces_per_run()
     now, new, done = config.now(), 0, 0
     for k in sorted(PROVINCES, key=lambda k: db.get(f"disc_{k}", "")):
-        if done >= limit or deadline - time.monotonic() < 45 or not llm.can_search():
+        if done >= config.discover_provinces_per_run() or deadline - time.monotonic() < 25 or not llm.can_search():
             break
         last = db.get(f"disc_{k}")
-        if last and now - datetime.fromisoformat(last) < timedelta(hours=12):
+        if last and now - datetime.fromisoformat(last) < timedelta(hours=24):
             break  # đã xếp theo thời điểm cũ nhất; các tỉnh còn lại đều mới hỏi
         res = llm.discover(k, today)
-        if res is None:  # lỗi gọi (hết hạn mức...) - ghi lại lý do, thử lại lượt sau
-            db.set(f"disc_res_{k}", f"{now.strftime('%d/%m %H:%M')}: lỗi gọi Gemini ({llm.last_error or 'không rõ'}), sẽ thử lại")
-            break
+        if res is None:
+            break  # lỗi gọi (hết hạn mức...) - thử lại lượt sau
         done += 1
-        stamp = now.strftime("%d/%m %H:%M")
-        if not llm.last_parse_ok:  # không đọc được JSON: KHÔNG đánh dấu đã hỏi để lượt sau thử lại
-            db.set(f"disc_res_{k}", f"{stamp}: không đọc được JSON của Gemini (sẽ thử lại)")
-            continue
-        stats: dict[str, int] = {}
         for d in res:
-            st = ingest_ai(db, d, k, today)
-            stats[st] = stats.get(st, 0) + 1
-        new += stats.get("new", 0)
-        detail = ", ".join(f"{a}={b}" for a, b in stats.items()) or "không có sự kiện hợp lệ"
+            if ingest_ai(db, d, k, today) == "new":
+                new += 1
         db.set(f"disc_{k}", now.isoformat(timespec="seconds"))
-        db.set(f"disc_res_{k}", f"{stamp}: Gemini trả {llm.last_raw}, hợp lệ {len(res)} -> {detail}")
-        log.info("AI tìm kiếm %s: trả %d, hợp lệ %d -> %s", k, llm.last_raw, len(res), detail)
-        time.sleep(2)
+        log.info("AI tìm kiếm %s: %d sự kiện", k, len(res))
+        time.sleep(13)  # giãn cách để không vượt RPM của gói free
+    return new
+
+
+def run_morning(db: DB, llm: LLM | None, today: date, force: bool = False) -> int:
+    """Tìm kiếm AI MỘT lần/ngày cho N ngày tới của cả 8 tỉnh, qua bộ lọc ingest_ai rồi lưu vào DB.
+    Tối đa 2 lần thử/ngày (kể cả khi lỗi) để không đốt hạn mức. Người dùng /tuannay chỉ đọc từ DB."""
+    if not llm or not llm.can_search():
+        return 0
+    d, _, n = (db.get("morning_tries", "") or "").partition("|")
+    tries = int(n or 0) if d == today.isoformat() else 0
+    if not force and (db.get("morning_done") == today.isoformat() or tries >= 2):
+        return 0
+    db.set("morning_tries", f"{today.isoformat()}|{tries + 1}")
+    res = llm.week_events(today, config.lookahead_days())
+    if res is None:
+        return 0  # lỗi gọi (hết hạn mức...) - thử lại lượt sau
+    st, new = {}, 0
+    for e in res:
+        s = ingest_ai(db, e, e["province"], today)
+        st[s] = st.get(s, 0) + 1
+        new += s == "new"
+    if res:
+        db.set("morning_done", today.isoformat())
+    db.set("last_morning", f"{config.now().isoformat(timespec='seconds')}: {len(res)} sự kiện -> {st}")
+    log.info("AI tìm sáng: %d sự kiện -> %s", len(res), st)
     return new
 
 
@@ -218,9 +232,7 @@ def prune_noise(db: DB) -> list[str]:
         head = f"{e.name} {e.venue}"
         own = score_provinces(head, e.summary).get(e.province, 0)
         why = None
-        if e.sources and all(is_bulletin("", u) for u in e.sources):
-            why = "chỉ có nguồn là bản tin thời sự (ngày là ngày phát sóng)"
-        elif not is_cultural_event(e.name, e.summary, e.crowd, e.fireworks, e.big_concert):
+        if not is_cultural_event(e.name, e.summary, e.crowd, e.fireworks, e.big_concert):
             why = "không phải sự kiện văn hoá"
         elif not event_name(e.name, e.summary):
             why = "không có tên lễ hội cụ thể"
@@ -237,8 +249,6 @@ def prune_noise(db: DB) -> list[str]:
 # ---------- Xử lý 1 bài ----------
 def ingest(db: DB, item: Item, body: str, llm: LLM | None, today: date, require_date: bool = False) -> str:
     """Trả về trạng thái: skip | out_of_scope | not_event | past | new | merged | dup."""
-    if is_bulletin(item.title, item.link):
-        return "not_event"  # bản tin thời sự tổng hợp: ngày trong tít là ngày phát sóng, không phải ngày sự kiện
     if title_elsewhere(item.title):
         return "out_of_scope"  # tít nói về nơi ngoài 8 tỉnh
     if not_vietnamese(item.title) or not_vietnamese(f"{item.summary} {body}"[:300]):
@@ -456,7 +466,6 @@ def prune_dead(db: DB, tg: Telegram) -> None:
 
 
 def send_alerts(db: DB, tg: Telegram) -> int:
-    tg.set_footer(db)
     n = 0
     for e in db.unalerted_large(config.today()):
         if tg.broadcast(format_alert(e), db.recipients()):
@@ -472,7 +481,6 @@ def run_digest(db: DB, tg: Telegram, force: bool = False) -> bool:
     if not force and db.get("last_digest_date") == today.isoformat():
         log.info("Bản tin hôm nay đã gửi, bỏ qua.")
         return False
-    tg.set_footer(db)
     days = config.lookahead_days()
     events = db.events_between(today, today + timedelta(days=days - 1))
     ok = tg.broadcast(format_digest(events, today, days), db.recipients())

@@ -89,11 +89,13 @@ def handle(text: str, chat_id: str, db: DB, name: str = "") -> Reply:
         rows = db.health_all()
         bad = [r for r in rows if r["fail_count"]]
         lines = [f"Số sự kiện đang lưu: {db.count_events()}",
+                 f"Số người nhận tin: {len(db.recipients())}",
                  f"Lần thu thập gần nhất: {db.get('last_collect', 'chưa có')}",
                  f"Bản tin gần nhất: {db.get('last_digest_date', 'chưa có')}",
                  f"Nguồn: {len(rows)} (lỗi: {len(bad)})"]
         lines.append("AI: " + db.get("llm_state", "chưa có"))
         lines.append("AI tìm sự kiện: " + db.get("last_discover", "chưa có"))
+        lines.append("AI tìm sáng (7 ngày tới): " + db.get("last_morning", "chưa có"))
         lines.append("Giải mã link Google News (lượt gần nhất): " + db.get("last_gn", "chưa có"))
         st = db.conn.execute("SELECT status, COUNT(*) FROM articles GROUP BY 1 ORDER BY 2 DESC").fetchall()
         lines.append("Bài đã xử lý: " + (", ".join(f"{r[0]}={r[1]}" for r in st) or "chưa có"))

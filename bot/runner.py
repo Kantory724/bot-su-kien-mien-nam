@@ -8,7 +8,7 @@ from .commands import Reply, handle, parse
 from .db import DB
 from .exporter import export_excel
 from .llm import LLM
-from .pipeline import run_collect, run_digest
+from .pipeline import run_collect, run_digest, run_morning
 from .telegram import Telegram
 
 log = logging.getLogger("runner")
@@ -17,7 +17,6 @@ OPEN_CMDS = {"start", "stop", "help", "id"}  # ai cũng dùng được: đăng k
 
 def poll_once(db: DB, tg: Telegram, timeout: int = 0) -> int:
     """Đọc tin nhắn mới và trả lời. Chỉ chat nằm trong TELEGRAM_CHAT_IDS mới dùng được các lệnh tra cứu."""
-    tg.set_footer(db)
     offset = int(db.get("tg_offset", "0") or 0) or None
     updates = tg.get_updates(offset, timeout)
     allowed = set(db.recipients())
@@ -51,16 +50,14 @@ def _last_collect_age(db: DB) -> timedelta | None:
 
 
 def tick(db: DB, tg: Telegram, llm: LLM | None = None, poll_timeout: int = 0) -> None:
-    """Một vòng: trả lời lệnh → gửi bản tin nếu đã qua 07:00 mà chưa gửi → thu thập nếu đến hạn.
-    Bản tin được gửi TRƯỚC khi thu thập: thu thập có thể chạy gần hết thời gian của một lượt GitHub Actions,
-    nếu để sau thì bản tin có thể không bao giờ được gửi."""
+    """Một vòng: trả lời lệnh → thu thập nếu đến hạn → gửi bản tin nếu đến 07:00 mà chưa gửi."""
     try:
         poll_once(db, tg, poll_timeout)
     except Exception as e:  # noqa
         log.error("Poll lệnh lỗi: %s", e)
 
     n = len(db.recipients())
-    if db.get("shown_users") != str(n):  # chỉ gọi Telegram khi số thay đổi
+    if db.get("shown_users") != str(n):  # chỉ gọi Telegram khi số người thay đổi
         try:
             tg.set_short_description(f"Tin lễ hội, sự kiện miền Nam · {n} người đang nhận tin")
             db.set("shown_users", n)
@@ -68,18 +65,28 @@ def tick(db: DB, tg: Telegram, llm: LLM | None = None, poll_timeout: int = 0) ->
             log.warning("Cập nhật mô tả bot lỗi: %s", e)
 
     now = config.now()
-    due = (now.hour >= config.digest_hour() and now.hour < 22 and db.get("last_digest_date") != now.date().isoformat())
-    if due and run_digest(db, tg):
-        if now.weekday() == 0 and db.get("last_week_excel") != now.date().isoformat():
-            _send_excel(db, tg, "week")
-            db.set("last_week_excel", now.date().isoformat())
-        if now.day == 1 and db.get("last_month_excel") != now.date().isoformat():
-            _send_excel(db, tg, "month")
-            db.set("last_month_excel", now.date().isoformat())
-
     age = _last_collect_age(db)
     if age is None or age >= timedelta(minutes=config.collect_interval_min()):
         run_collect(db, tg, llm)
+        age = timedelta(0)
+
+    if config.morning_hour() <= now.hour < 22:  # từ 06:00 (trước giờ gửi bản tin); đã xong trong ngày thì thoát ngay
+        try:
+            run_morning(db, llm, config.today())
+        except Exception as e:  # noqa
+            log.error("AI tìm sáng lỗi: %s", e)
+
+    due = (now.hour >= config.digest_hour() and now.hour < 22 and db.get("last_digest_date") != now.date().isoformat())
+    if due:
+        if age >= timedelta(minutes=30):
+            run_collect(db, tg, llm)
+        if run_digest(db, tg):
+            if now.weekday() == 0 and db.get("last_week_excel") != now.date().isoformat():
+                _send_excel(db, tg, "week")
+                db.set("last_week_excel", now.date().isoformat())
+            if now.day == 1 and db.get("last_month_excel") != now.date().isoformat():
+                _send_excel(db, tg, "month")
+                db.set("last_month_excel", now.date().isoformat())
 
 
 def _send_excel(db: DB, tg: Telegram, period: str) -> None:

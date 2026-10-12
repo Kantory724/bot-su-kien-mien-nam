@@ -127,3 +127,8 @@ def discover_provinces_per_run() -> int:
 def batch_max() -> int:
     """Số tỉnh tối đa được tra ngày theo lô trong mỗi lượt (mỗi tỉnh = 1 lệnh Gemini Search)."""
     return env_int("BATCH_MAX", 2)
+
+
+def morning_hour() -> int:
+    """Giờ bắt đầu tìm kiếm AI mỗi sáng (mặc định 1 giờ trước giờ gửi bản tin, tức 06:00)."""
+    return env_int("MORNING_HOUR", digest_hour() - 1)
