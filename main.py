@@ -35,7 +35,8 @@ def main(argv=None) -> int:
     u = sub.add_parser("add-url", help="thêm tay một bài báo (link thường hoặc Google News) vào danh sách sự kiện")
     u.add_argument("url")
     sub.add_parser("enrich", help="tìm lại bài báo để bổ sung ngày/địa điểm cho các sự kiện còn thiếu")
-    sub.add_parser("discover", help="hỏi Gemini+Google Search tìm sự kiện cả 8 tỉnh")
+    sub.add_parser("discover", help="hỏi Gemini+Google Search tìm sự kiện từng tỉnh (tốn nhiều hạn mức)")
+    sub.add_parser("morning", help="AI tìm sự kiện 7 ngày tới cho cả 8 tỉnh bằng 1 lệnh, lưu vào DB (ép chạy)")
     sub.add_parser("set-commands", help="đặt menu gợi ý lệnh (gõ / trong Telegram)")
     sub.add_parser("prune-noise", help="xoá khỏi DB các tin không phải lễ hội/văn hoá/sự kiện")
     sub.add_parser("dedupe", help="gộp các sự kiện trùng đã lưu trong DB")
@@ -61,7 +62,7 @@ def main(argv=None) -> int:
     from bot.exporter import export_excel
     from bot.geo import PROVINCES
     from bot.llm import LLM
-    from bot.pipeline import _short, dedupe_existing, prune_noise, run_collect, run_digest, run_discover
+    from bot.pipeline import _short, dedupe_existing, prune_noise, run_collect, run_digest, run_discover, run_morning
     from bot.runner import serve, tick
     from bot.telegram import Telegram
 
@@ -113,6 +114,7 @@ def main(argv=None) -> int:
         n = tg.broadcast("✅ Bot tin sự kiện miền Nam đã kết nối thành công.\nGõ /help để xem lệnh.")
         print(f"Đã gửi tới {n}/{len(config.chat_ids())} chat")
         return 0 if n else 1
+
     if a.cmd == "set-commands":
         tg.set_commands([
             ("homnay", "Sự kiện hôm nay"), ("tuannay", "Sự kiện 7 ngày tới"),
@@ -122,6 +124,7 @@ def main(argv=None) -> int:
             ("stop", "Huỷ nhận tin"), ("id", "Xem Chat ID")])
         print("Đã đặt menu lệnh")
         return 0
+
     db = DB()
     llm = LLM()
     try:
@@ -134,6 +137,11 @@ def main(argv=None) -> int:
             db.set("last_discover", f"{config.now().isoformat(timespec='seconds')}: thêm {n} sự kiện")
             db.set("llm_state", llm.status())
             print(f"Đã thêm {n} sự kiện mới")
+            print("AI:", llm.status())
+        elif a.cmd == "morning":
+            n = run_morning(db, llm, config.today(), force=True)
+            print(f"Đã thêm {n} sự kiện mới")
+            print(db.get("last_morning", ""))
             print("AI:", llm.status())
         elif a.cmd == "enrich":
             from bot.enrich import enrich_events
